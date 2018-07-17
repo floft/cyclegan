@@ -128,7 +128,7 @@ def resnet(name, inputs, num_outputs):
 class CycleGAN:
     def __init__(self,
                  num_epochs=100,
-                 batch_size=16,
+                 batch_size=32,
                  img_width=72,
                  img_height=72,
                  img_layers=3,
@@ -268,18 +268,22 @@ class CycleGAN:
         #
         # For evaluation
         #
-        # When running this in the session, change the feed_dict to feed in the evaluation
+        # When running these in the session, change the feed_dict to feed in the evaluation
         # images rather than the training images.
         #
         realA = denormalize(self.image_A)
         realB = denormalize(self.image_B)
         fakeA = denormalize(self.gen_BtoA)
         fakeB = denormalize(self.gen_AtoB)
+        cycA = denormalize(self.gen_AtoBtoA)
+        cycB = denormalize(self.gen_BtoAtoB)
 
         self.eval_realA_summ = tf.summary.image("real_A", realA, self.eval_images)
         self.eval_realB_summ = tf.summary.image("real_B", realB, self.eval_images)
         self.eval_fakeA_summ = tf.summary.image("fake_A", fakeA, self.eval_images)
         self.eval_fakeB_summ = tf.summary.image("fake_B", fakeB, self.eval_images)
+        self.eval_cycA_summ = tf.summary.image("cyc_A", cycA, self.eval_images)
+        self.eval_cycB_summ = tf.summary.image("cyc_B", cycB, self.eval_images)
 
     def run(self):
         # Define the networks
@@ -339,7 +343,6 @@ class CycleGAN:
 
                     try:
                         t = time.time()
-
                         image_A, image_B = sess.run([next_image_A, next_image_B])
 
                         # Make sure we have a full batch
@@ -397,19 +400,19 @@ class CycleGAN:
                         sess.run([eval_image_A_iter.initializer, eval_image_B_iter.initializer])
                         eval_image_A, eval_image_B = sess.run([eval_image_A_iter.get_next(), eval_image_B_iter.get_next()])
 
-                        # Generate eval images (real and fake of both A and B)
-                        s1, s2, s3, s4 = sess.run([self.eval_realA_summ, self.eval_realB_summ,
-                                                  self.eval_fakeA_summ, self.eval_fakeB_summ],
-                                                  feed_dict={
-                                                     self.image_A: eval_image_A,
-                                                     self.image_B: eval_image_B,
-                                                     self.learningRate: currentLearningRate
-                                                 })
+                        # Generate eval images
+                        summaries = sess.run([
+                                self.eval_realA_summ, self.eval_realB_summ,
+                                self.eval_fakeA_summ, self.eval_fakeB_summ,
+                                self.eval_cycA_summ,  self.eval_cycB_summ
+                            ], feed_dict={
+                                self.image_A: eval_image_A,
+                                self.image_B: eval_image_B,
+                                self.learningRate: currentLearningRate
+                            })
 
-                        writer.add_summary(s1, iteration)
-                        writer.add_summary(s2, iteration)
-                        writer.add_summary(s3, iteration)
-                        writer.add_summary(s4, iteration)
+                        for s in summaries:
+                            writer.add_summary(s, iteration)
 
                     # Increment iteration since we've finished another image
                     sess.run(tf.assign(self.iteration, iteration+1))
@@ -417,11 +420,10 @@ class CycleGAN:
                 # Increment global step since we've finished another epoch
                 sess.run(tf.assign(self.global_step, epoch+1))
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--epochs', default=100, type=int, help="Number of epochs")
-    parser.add_argument('--batches', default=16, type=int, help="Batch size")
+    parser.add_argument('--batch', default=32, type=int, help="Batch size")
     parser.add_argument('--width', default=72, type=int, help="Image width")
     parser.add_argument('--height', default=72, type=int, help="Image height")
     parser.add_argument('--channels', default=3, type=int, help="Image channels (e.g. 4 if RGBA)")
@@ -441,7 +443,7 @@ if __name__ == "__main__":
     else:
         CycleGAN(
             num_epochs=args.epochs,
-            batch_size=args.batches,
+            batch_size=args.batch,
             img_width=args.width,
             img_height=args.height,
             img_layers=args.channels,
