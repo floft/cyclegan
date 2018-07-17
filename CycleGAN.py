@@ -9,16 +9,25 @@
 
 import os
 import time
+import argparse
 import numpy as np
 import tensorflow as tf
+
+# Due to this being run on Kamiak, that doesn't have _tkinter, we have to set a
+# different backend otherwise it'll error
+# https://stackoverflow.com/a/40931739/2698494
+import matplotlib as mpl
+if os.environ.get('DISPLAY','') == '':
+    print('no display found. Using non-interactive Agg backend')
+    mpl.use('Agg')
 import matplotlib.pyplot as plt
 
 #tf.enable_eager_execution()
 #tf.executing_eagerly()
 
-seed=42
-np.random.seed(seed)
-tf.set_random_seed(seed)
+#seed=42
+#np.random.seed(seed)
+#tf.set_random_seed(seed)
 
 #
 # Import and preview the Apple and Windows emojis dataset.
@@ -410,6 +419,35 @@ class CycleGAN:
 
 
 if __name__ == "__main__":
-    #show(["Train Apple", "Train Windows"], train_input_fn())
-    #show(["Test Apple", "Test Windows"], test_input_fn())
-    CycleGAN().run()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--epochs', default=100, type=int, help="Number of epochs")
+    parser.add_argument('--batches', default=16, type=int, help="Batch size")
+    parser.add_argument('--width', default=72, type=int, help="Image width")
+    parser.add_argument('--height', default=72, type=int, help="Image height")
+    parser.add_argument('--channels', default=3, type=int, help="Image channels (e.g. 4 if RGBA)")
+    parser.add_argument('--res', default=9, type=int, help="Number of residual blocks for generator")
+    parser.add_argument('--modeldir', default="models", type=str, help="Directory for saving model files")
+    parser.add_argument('--logdir', default="logs", type=str, help="Directory for saving log files")
+    parser.add_argument('--eval', default=3, type=int, help="Number of images to use for evaluation")
+    parser.add_argument('--restore', dest='restore', action='store_true', help="Restore from saved checkpoints (default)")
+    parser.add_argument('--no-restore', dest='restore', action='store_false', help="Do not restore from saved checkpoints")
+    parser.add_argument('--display', dest='display', action='store_true', help="Display samples from dataset instead of training")
+    parser.set_defaults(restore=True, display=False)
+    args = parser.parse_args()
+
+    if args.display:
+        show(["Train Apple", "Train Windows"], train_input_fn())
+        show(["Test Apple", "Test Windows"], test_input_fn())
+    else:
+        CycleGAN(
+            num_epochs=args.epochs,
+            batch_size=args.batches,
+            img_width=args.width,
+            img_height=args.height,
+            img_layers=args.channels,
+            generator_residual_blocks=args.res,
+            log_dir=args.logdir,
+            check_dir=args.modeldir,
+            eval_images=args.eval,
+            restore=args.restore
+        ).run()

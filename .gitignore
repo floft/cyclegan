@@ -2,3 +2,5 @@
 emojis/
 logs/
 models/
+slurm_logs/
+*.zip
