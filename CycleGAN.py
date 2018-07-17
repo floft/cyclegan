@@ -91,9 +91,6 @@ def show(titles, input_data, num=20, cols=10):
 
         plt.show()
 
-show(["Train Apple", "Train Windows"], train_input_fn())
-show(["Test Apple", "Test Windows"], test_input_fn())
-
 #
 # Implementing the GAN
 #
@@ -125,8 +122,8 @@ class CycleGAN:
                  batch_size=16,
                  img_width=72,
                  img_height=72,
-                 img_layers=4,
-                 generator_residual_blocks=3,
+                 img_layers=3,
+                 generator_residual_blocks=9,
                  log_dir="logs",
                  check_dir="models",
                  eval_images=3, # Probably has to be smaller than the batch size
@@ -140,12 +137,11 @@ class CycleGAN:
         self.check_dir = check_dir
         self.eval_images = eval_images
         self.restore = restore
-        self.data_format = 'channels_last'
         self.generator_residual_blocks = generator_residual_blocks
 
     def create_generator(self, name, input_layer):
         l = tf.keras.layers
-        ngf = 8 # Filter depth for generator, what was used in tutorial
+        ngf = 16 # Filter depth for generator, what was used in tutorial
 
         with tf.variable_scope(name):
             # TODO
@@ -169,7 +165,7 @@ class CycleGAN:
 
     def create_discriminator(self, name, input_layer):
         l = tf.keras.layers
-        ndf = 16 # Filter depth for discriminator, what was used in tutorial
+        ndf = 32 # Filter depth for discriminator, what was used in tutorial
 
         with tf.variable_scope(name):
             d_c1 = conv2d("c1", input_layer, ndf,   4, 2, "SAME")
@@ -222,14 +218,15 @@ class CycleGAN:
         # Loss functions
         #
         # Generator should by cycle consistent & we want the discriminator to output a 1, i.e. incorrect label
-        cyc_loss = tf.reduce_mean(tf.abs(self.image_A-self.gen_AtoBtoA)) +                    tf.reduce_mean(tf.abs(self.image_B-self.gen_BtoAtoB))
+        cyc_loss = tf.reduce_mean(tf.abs(self.image_A-self.gen_AtoBtoA)) + \
+                   tf.reduce_mean(tf.abs(self.image_B-self.gen_BtoAtoB))
         g_loss_A = cyc_loss*10 + tf.reduce_mean(tf.squared_difference(self.disc_Afake,1))
         g_loss_B = cyc_loss*10 + tf.reduce_mean(tf.squared_difference(self.disc_Bfake,1))
 
         # Discriminator should correctly classify the original real images and the generated fake images
-        d_loss_A = (tf.reduce_mean(tf.square(self.disc_Afake))
+        d_loss_A = (tf.reduce_mean(tf.square(self.disc_Afake)) +
                          tf.reduce_mean(tf.squared_difference(self.disc_Areal,1)))/2
-        d_loss_B = (tf.reduce_mean(tf.square(self.disc_Bfake))
+        d_loss_B = (tf.reduce_mean(tf.square(self.disc_Bfake)) +
                          tf.reduce_mean(tf.squared_difference(self.disc_Breal,1)))/2
 
         #
@@ -286,7 +283,8 @@ class CycleGAN:
         if not os.path.exists(self.check_dir):
             os.makedirs(self.check_dir)
 
-        with tf.Session(config=tf.ConfigProto(log_device_placement=True)) as sess:
+        #with tf.Session(config=tf.ConfigProto(log_device_placement=True)) as sess:
+        with tf.Session() as sess:
             tf.local_variables_initializer().run()
             tf.global_variables_initializer().run()
 
@@ -412,4 +410,6 @@ class CycleGAN:
 
 
 if __name__ == "__main__":
+    #show(["Train Apple", "Train Windows"], train_input_fn())
+    #show(["Test Apple", "Test Windows"], test_input_fn())
     CycleGAN().run()
