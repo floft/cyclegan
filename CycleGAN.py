@@ -9,6 +9,7 @@
 
 import os
 import time
+import random
 import argparse
 import numpy as np
 import tensorflow as tf
@@ -136,7 +137,9 @@ class CycleGAN:
                  log_dir="logs",
                  check_dir="models",
                  eval_images=3, # Probably has to be smaller than the batch size
-                 restore=True):
+                 restore=True,
+                 history=True,
+                 history_size=50):
         self.num_epochs = num_epochs
         self.batch_size = batch_size
         self.img_width = img_width
@@ -147,6 +150,8 @@ class CycleGAN:
         self.eval_images = eval_images
         self.restore = restore
         self.generator_residual_blocks = generator_residual_blocks
+        self.history = history
+        self.history_size = history_size
 
     def create_generator(self, name, input_layer):
         l = tf.keras.layers
@@ -196,6 +201,19 @@ class CycleGAN:
                                       [self.batch_size, self.img_width, self.img_height, self.img_layers],
                                       name="input_B")
 
+        if self.history:
+            # Actually stored here
+            self.poolB = np.zeros((self.history_size, self.batch_size, self.img_height, self.img_width, self.img_layers))
+            self.poolA = np.zeros((self.history_size, self.batch_size, self.img_height, self.img_width, self.img_layers))
+
+            # Passed into TF with these placeholders
+            self.hist_pool_A = tf.placeholder(tf.float32,
+                                          [None, self.img_width, self.img_height, self.img_layers],
+                                          name="hist_pool_A")
+            self.hist_pool_B = tf.placeholder(tf.float32,
+                                          [None, self.img_width, self.img_height, self.img_layers],
+                                          name="hist_pool_B")
+
         # For keeping track of where we are in training, and restoring from checkpoints
         self.global_step = tf.Variable(0, name="global_step", trainable=False)
         self.iteration = tf.Variable(0, name="iteration", trainable=False)
@@ -220,8 +238,12 @@ class CycleGAN:
             self.disc_Afake = self.create_discriminator("discrim_A", self.gen_AtoB)
             self.disc_Bfake = self.create_discriminator("discrim_B", self.gen_BtoA)
 
-            # TODO
-            # - implement the image pool for performance and better convergence
+            scope.reuse_variables()
+
+            if self.history:
+                # Discriminators on the generated fake images in the history
+                self.hist_disc_Afake = self.create_discriminator("discrim_A", self.hist_pool_A)
+                self.hist_disc_Bfake = self.create_discriminator("discrim_B", self.hist_pool_B)
 
         #
         # Loss functions
@@ -233,10 +255,16 @@ class CycleGAN:
         g_loss_B = cyc_loss*10 + tf.reduce_mean(tf.squared_difference(self.disc_Bfake,1))
 
         # Discriminator should correctly classify the original real images and the generated fake images
-        d_loss_A = (tf.reduce_mean(tf.square(self.disc_Afake)) +
-                         tf.reduce_mean(tf.squared_difference(self.disc_Areal,1)))/2
-        d_loss_B = (tf.reduce_mean(tf.square(self.disc_Bfake)) +
-                         tf.reduce_mean(tf.squared_difference(self.disc_Breal,1)))/2
+        if self.history:
+            d_loss_A = (tf.reduce_mean(tf.square(self.hist_disc_Afake)) +
+                             tf.reduce_mean(tf.squared_difference(self.disc_Areal,1)))/2
+            d_loss_B = (tf.reduce_mean(tf.square(self.hist_disc_Bfake)) +
+                             tf.reduce_mean(tf.squared_difference(self.disc_Breal,1)))/2
+        else:
+            d_loss_A = (tf.reduce_mean(tf.square(self.disc_Afake)) +
+                             tf.reduce_mean(tf.squared_difference(self.disc_Areal,1)))/2
+            d_loss_B = (tf.reduce_mean(tf.square(self.disc_Bfake)) +
+                             tf.reduce_mean(tf.squared_difference(self.disc_Breal,1)))/2
 
         #
         # Variables
@@ -285,6 +313,25 @@ class CycleGAN:
         self.eval_cycA_summ = tf.summary.image("cyc_A", cycA, self.eval_images)
         self.eval_cycB_summ = tf.summary.image("cyc_B", cycB, self.eval_images)
 
+    def hist_image_pool(self, num_in_pool, new_image, pool):
+        """ Shrivastava et al's history technique - we're storing batches though not 1 image """
+        # Keep adding till pool is full
+        if num_in_pool < self.history_size:
+            pool[num_in_pool] = new_image
+            return new_image
+        else:
+            p = random.random()
+
+            # Use image from history 50% of time, replacing it with new image
+            if p > 0.5:
+                rand_id = random.randint(0, self.history_size-1)
+                tmp = pool[rand_id]
+                pool[rand_id] = new_image
+                return tmp
+            # Otherwise, use the new image this time
+            else:
+                return new_image
+
     def run(self):
         # Define the networks
         self.cyclegan_model()
@@ -307,6 +354,9 @@ class CycleGAN:
                                         resize=[self.img_width,self.img_height])
             image_A_iter = input_data['A']
             image_B_iter = input_data['B']
+
+            # We start off with no images in the pool
+            self.num_in_pool = 0
 
             # Get evaluation images
             eval_input_data = test_input_fn(self.batch_size, # "batch" is number of images we want
@@ -351,7 +401,7 @@ class CycleGAN:
                             break
 
                         # Optimize gen_AtoB
-                        _, fakeB, summ = sess.run([self.g_A_trainer, self.gen_AtoB, self.g_A_loss_summ], feed_dict={
+                        _, generatedB, summ = sess.run([self.g_A_trainer, self.gen_AtoB, self.g_A_loss_summ], feed_dict={
                                                      self.image_A: image_A,
                                                      self.image_B: image_B,
                                                      self.learningRate: currentLearningRate
@@ -359,15 +409,21 @@ class CycleGAN:
                         writer.add_summary(summ, iteration)
 
                         # Optimize discrim_B
-                        _, summ = sess.run([self.d_B_trainer, self.d_B_loss_summ], feed_dict={
-                                                     self.image_A: image_A,
-                                                     self.image_B: image_B,
-                                                     self.learningRate: currentLearningRate
-                                                 })
+                        feed_dict = {
+                             self.image_A: image_A,
+                             self.image_B: image_B,
+                             self.learningRate: currentLearningRate,
+                        }
+
+                        if self.history:
+                            generatedB = self.hist_image_pool(self.num_in_pool, generatedB, self.poolB)
+                            feed_dict[self.hist_pool_B] = generatedB
+
+                        _, summ = sess.run([self.d_B_trainer, self.d_B_loss_summ], feed_dict=feed_dict)
                         writer.add_summary(summ, iteration)
 
                         # Optimize gen_BtoA
-                        _, fakeA, summ = sess.run([self.g_B_trainer, self.gen_BtoA, self.g_B_loss_summ], feed_dict={
+                        _, generatedA, summ = sess.run([self.g_B_trainer, self.gen_BtoA, self.g_B_loss_summ], feed_dict={
                                                      self.image_A: image_A,
                                                      self.image_B: image_B,
                                                      self.learningRate: currentLearningRate
@@ -375,11 +431,17 @@ class CycleGAN:
                         writer.add_summary(summ, iteration)
 
                         # Optimize discrim_A
-                        _, summ = sess.run([self.d_A_trainer, self.d_A_loss_summ], feed_dict={
-                                                     self.image_A: image_A,
-                                                     self.image_B: image_B,
-                                                     self.learningRate: currentLearningRate
-                                                 })
+                        feed_dict = {
+                             self.image_A: image_A,
+                             self.image_B: image_B,
+                             self.learningRate: currentLearningRate
+                        }
+
+                        if self.history:
+                            generatedA = self.hist_image_pool(self.num_in_pool, generatedA, self.poolA)
+                            feed_dict[self.hist_pool_A] = generatedA
+
+                        _, summ = sess.run([self.d_A_trainer, self.d_A_loss_summ], feed_dict=feed_dict)
                         writer.add_summary(summ, iteration)
 
                         # Log time to execute this step
@@ -387,15 +449,18 @@ class CycleGAN:
                         summ = tf.Summary(value=[tf.Summary.Value(tag="step_time", simple_value=t)])
                         writer.add_summary(summ, iteration)
 
-                        # We need to flush to disk so I can see the results in TensorBoard
-                        if iteration%50 == 0:
+                        # We've added one more image (batch) to the history
+                        self.num_in_pool += 1
+
+                        # To see results every so often in TensorBoard
+                        if iteration%100 == 0:
                             writer.flush()
 
                     except tf.errors.OutOfRangeError:
                         break
 
                     # Evaluation
-                    if iteration%100 == 0:
+                    if iteration%200 == 0:
                         # Reset iterators for evaluation
                         sess.run([eval_image_A_iter.initializer, eval_image_B_iter.initializer])
                         eval_image_A, eval_image_B = sess.run([eval_image_A_iter.get_next(), eval_image_B_iter.get_next()])
@@ -433,8 +498,11 @@ if __name__ == "__main__":
     parser.add_argument('--eval', default=3, type=int, help="Number of images to use for evaluation")
     parser.add_argument('--restore', dest='restore', action='store_true', help="Restore from saved checkpoints (default)")
     parser.add_argument('--no-restore', dest='restore', action='store_false', help="Do not restore from saved checkpoints")
+    parser.add_argument('--history', dest='history', action='store_true', help="Use history of past generated images (default)")
+    parser.add_argument('--no-history', dest='history', action='store_false', help="Do not use history of past generated images")
+    parser.add_argument('--histsize', default=50, type=int, help="Number of images to use in history")
     parser.add_argument('--display', dest='display', action='store_true', help="Display samples from dataset instead of training")
-    parser.set_defaults(restore=True, display=False)
+    parser.set_defaults(restore=True, history=True, display=False)
     args = parser.parse_args()
 
     if args.display:
@@ -451,5 +519,7 @@ if __name__ == "__main__":
             log_dir=args.logdir,
             check_dir=args.modeldir,
             eval_images=args.eval,
-            restore=args.restore
+            restore=args.restore,
+            history=args.history,
+            history_size=args.histsize
         ).run()
