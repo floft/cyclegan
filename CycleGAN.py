@@ -313,8 +313,8 @@ class CycleGAN:
         optimizer = tf.train.AdamOptimizer(learning_rate=self.learningRate, beta1=0.5)
         self.d_A_trainer = optimizer.minimize(d_loss_A, var_list=d_A_vars)
         self.d_B_trainer = optimizer.minimize(d_loss_B, var_list=d_B_vars)
-        self.g_A_trainer = optimizer.minimize(g_loss_A, var_list=d_A_vars)
-        self.g_B_trainer = optimizer.minimize(g_loss_B, var_list=d_B_vars)
+        self.g_A_trainer = optimizer.minimize(g_loss_A, var_list=g_A_vars)
+        self.g_B_trainer = optimizer.minimize(g_loss_B, var_list=g_B_vars)
 
         #
         # Summaries for TensorBoard
