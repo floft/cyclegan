@@ -415,9 +415,9 @@ class CycleGAN:
 
                 # Decaying learning rate
                 if epoch < 100:
-                    currentLearningRate = 0.002
+                    currentLearningRate = 0.0002
                 else:
-                    currentLearningRate = 0.002 - 0.002*(epoch-100)/100 # From tutorial
+                    currentLearningRate = 0.0002 - 0.0002*(epoch-100)/100 # From tutorial
 
                 while True:
                     iteration = sess.run(self.iteration)
