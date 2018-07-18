@@ -105,7 +105,7 @@ def show(titles, input_data, num=20, cols=10):
 # Implementing the GAN
 #
 def conv2d(name, inputs, num_outputs, kernel_size, stride, padding,
-        stddev=0.02, activation=tf.nn.relu, batchnorm=True, training=False, reuse=False):
+        stddev=0.02, activation=tf.nn.relu, batchnorm=True, training=False):
     with tf.variable_scope(name):
         conv = tf.contrib.layers.conv2d(inputs, num_outputs, kernel_size, stride, padding,
                                         activation_fn=None,
@@ -113,7 +113,7 @@ def conv2d(name, inputs, num_outputs, kernel_size, stride, padding,
                                         biases_initializer=tf.constant_initializer(0.0))
 
         if batchnorm:
-            conv = tf.layers.batch_normalization(conv, training=training, reuse=reuse)
+            conv = tf.layers.batch_normalization(conv, training=training)
 
         if activation is not None:
             return activation(conv)
@@ -121,7 +121,7 @@ def conv2d(name, inputs, num_outputs, kernel_size, stride, padding,
             return conv
 
 def deconv2d(name, inputs, num_outputs, kernel_size, stride, padding,
-        stddev=0.02, activation=tf.nn.relu, batchnorm=True, training=False, reuse=False):
+        stddev=0.02, activation=tf.nn.relu, batchnorm=True, training=False):
     with tf.variable_scope(name):
         conv = tf.contrib.layers.conv2d_transpose(inputs, num_outputs, kernel_size, stride, padding,
                                                   activation_fn=activation,
@@ -129,19 +129,19 @@ def deconv2d(name, inputs, num_outputs, kernel_size, stride, padding,
                                                   biases_initializer=tf.constant_initializer(0.0))
 
         if batchnorm:
-            conv = tf.layers.batch_normalization(conv, training=training, reuse=reuse)
+            conv = tf.layers.batch_normalization(conv, training=training)
 
         if activation is not None:
             return activation(conv)
         else:
             return conv
 
-def resnet(name, inputs, num_outputs, training=False, reuse=False):
+def resnet(name, inputs, num_outputs, training=False):
     with tf.variable_scope(name):
         r = tf.pad(inputs, [[0,0], [1,1], [1,1], [0,0]], "REFLECT")
-        r = conv2d("c1", r, num_outputs, 3, 1, "VALID", training=training, reuse=reuse)
+        r = conv2d("c1", r, num_outputs, 3, 1, "VALID", training=training)
         r = tf.pad(r, [[0,0], [1,1], [1,1], [0,0]], "REFLECT")
-        r = conv2d("c2", r, num_outputs, 3, 1, "VALID", activation=None, training=training, reuse=reuse)
+        r = conv2d("c2", r, num_outputs, 3, 1, "VALID", activation=None, training=training)
         return tf.nn.relu(r + inputs)
 
 class CycleGAN:
@@ -171,7 +171,7 @@ class CycleGAN:
         self.history = history
         self.history_size = history_size
 
-    def create_generator(self, name, input_layer, reuse=False):
+    def create_generator(self, name, input_layer):
         l = tf.keras.layers
         ngf = 8 # Filter depth for generator
         summaries = []
@@ -179,50 +179,50 @@ class CycleGAN:
         with tf.variable_scope(name):
             g_pad = tf.pad(input_layer, [[0,0],[3,3],[3,3],[0,0]], "REFLECT")
             summaries.append(tf.summary.histogram("g_pad", g_pad))
-            g_c1 = conv2d("c1", g_pad, ngf,   7, 1, "VALID", training=self.training, reuse=reuse)
+            g_c1 = conv2d("c1", g_pad, ngf,   7, 1, "VALID", training=self.training)
             summaries.append(tf.summary.histogram("g_c1", g_c1))
-            g_c2 = conv2d("c2", g_c1,  ngf*2, 3, 2, "SAME", training=self.training, reuse=reuse)
+            g_c2 = conv2d("c2", g_c1,  ngf*2, 3, 2, "SAME", training=self.training)
             summaries.append(tf.summary.histogram("g_c2", g_c2))
-            g_c3 = conv2d("c3", g_c2,  ngf*4, 3, 2, "SAME", training=self.training, reuse=reuse)
+            g_c3 = conv2d("c3", g_c2,  ngf*4, 3, 2, "SAME", training=self.training)
             summaries.append(tf.summary.histogram("g_c3", g_c3))
 
             assert self.generator_residual_blocks > 0
-            g_r = resnet("r1", g_c3, ngf*4, training=self.training, reuse=reuse)
+            g_r = resnet("r1", g_c3, ngf*4, training=self.training)
             summaries.append(tf.summary.histogram("g_r1", g_r))
             for i in range(self.generator_residual_blocks-1):
-                g_r = resnet("r"+str(i+2), g_r, ngf*4, training=self.training, reuse=reuse)
+                g_r = resnet("r"+str(i+2), g_r, ngf*4, training=self.training)
                 summaries.append(tf.summary.histogram("g_r"+str(i+2), g_r))
 
-            g_c4 = deconv2d("c4", g_r,  ngf*2,           3, 2, "SAME", training=self.training, reuse=reuse)
+            g_c4 = deconv2d("c4", g_r,  ngf*2,           3, 2, "SAME", training=self.training)
             summaries.append(tf.summary.histogram("g_c4", g_c4))
-            g_c5 = deconv2d("c5", g_c4, ngf,             3, 2, "SAME", training=self.training, reuse=reuse)
+            g_c5 = deconv2d("c5", g_c4, ngf,             3, 2, "SAME", training=self.training)
             summaries.append(tf.summary.histogram("g_c5", g_c5))
             g_c6 = conv2d("c6",   g_c5, self.img_layers, 7, 1, "SAME",
-                    activation=tf.nn.tanh, batchnorm=False, reuse=reuse)
+                    activation=tf.nn.tanh, batchnorm=False)
             summaries.append(tf.summary.histogram("g_c6", g_c6))
 
             return g_c6, summaries
 
-    def create_discriminator(self, name, input_layer, reuse=False):
+    def create_discriminator(self, name, input_layer):
         l = tf.keras.layers
         ndf = 16 # Filter depth for discriminator
         summaries = []
 
         with tf.variable_scope(name):
             d_c1 = conv2d("c1", input_layer, ndf,   4, 2, "SAME",
-                    activation=tf.nn.leaky_relu, batchnorm=False, reuse=reuse)
+                    activation=tf.nn.leaky_relu, batchnorm=False)
             summaries.append(tf.summary.histogram("d_c1", d_c1))
             d_c2 = conv2d("c2", d_c1,        ndf*2, 4, 2, "SAME",
-                    activation=tf.nn.leaky_relu, training=self.training, reuse=reuse)
+                    activation=tf.nn.leaky_relu, training=self.training)
             summaries.append(tf.summary.histogram("d_c2", d_c2))
             d_c3 = conv2d("c3", d_c2,        ndf*4, 4, 2, "SAME",
-                    activation=tf.nn.leaky_relu, training=self.training, reuse=reuse)
+                    activation=tf.nn.leaky_relu, training=self.training)
             summaries.append(tf.summary.histogram("d_c3", d_c3))
             d_c4 = conv2d("c4", d_c3,        ndf*8, 4, 1, "SAME",
-                    activation=tf.nn.leaky_relu, training=self.training, reuse=reuse)
+                    activation=tf.nn.leaky_relu, training=self.training)
             summaries.append(tf.summary.histogram("d_c4", d_c4))
             d_c5 = conv2d("c5", d_c4,        1,     4, 1, "SAME",
-                    activation=None, batchnorm=False, reuse=reuse) # Radford didn't say disable batchnorm here but tutorial did it
+                    activation=None, batchnorm=False) # Radford didn't say disable batchnorm here but tutorial did it
             summaries.append(tf.summary.histogram("d_c5", d_c5))
             return d_c5, summaries
 
@@ -269,18 +269,18 @@ class CycleGAN:
             scope.reuse_variables()
 
             # Generate from fake back to original (for cycle consistency)
-            self.gen_AtoBtoA, _ = self.create_generator("gen_BtoA", self.gen_AtoB, reuse=True) # Reuse weights from BtoA
-            self.gen_BtoAtoB, _ = self.create_generator("gen_AtoB", self.gen_BtoA, reuse=True) # Reuse weights from AtoB
+            self.gen_AtoBtoA, _ = self.create_generator("gen_BtoA", self.gen_AtoB) # Reuse weights from BtoA
+            self.gen_BtoAtoB, _ = self.create_generator("gen_AtoB", self.gen_BtoA) # Reuse weights from AtoB
 
             # Discriminators on the generated fake images
-            self.disc_Afake, _ = self.create_discriminator("discrim_A", self.gen_BtoA, reuse=True)
-            self.disc_Bfake, _ = self.create_discriminator("discrim_B", self.gen_AtoB, reuse=True)
+            self.disc_Afake, _ = self.create_discriminator("discrim_A", self.gen_BtoA)
+            self.disc_Bfake, _ = self.create_discriminator("discrim_B", self.gen_AtoB)
 
             # Discriminators on the generated fake images in the history
             if self.history:
                 scope.reuse_variables()
-                self.hist_disc_Afake, _ = self.create_discriminator("discrim_A", self.hist_pool_A, reuse=True)
-                self.hist_disc_Bfake, _ = self.create_discriminator("discrim_B", self.hist_pool_B, reuse=True)
+                self.hist_disc_Afake, _ = self.create_discriminator("discrim_A", self.hist_pool_A)
+                self.hist_disc_Bfake, _ = self.create_discriminator("discrim_B", self.hist_pool_B)
 
         #
         # Loss functions
