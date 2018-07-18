@@ -181,9 +181,9 @@ class CycleGAN:
         summaries = []
 
         with tf.variable_scope(name):
-            g_pad = tf.pad(input_layer, [[0,0],[3,3],[3,3],[0,0]], "REFLECT")
+            g_pad = tf.pad(input_layer, [[0,0],[1,1],[1,1],[0,0]], "REFLECT") # 1/2 of start/end depth - 1
             summaries.append(tf.summary.histogram("g_pad", g_pad))
-            g_c1 = conv2d("c1", g_pad, ngf,   2, 1, "VALID", training=self.training)
+            g_c1 = conv2d("c1", g_pad, ngf,   3, 1, "VALID", training=self.training)
             summaries.append(tf.summary.histogram("g_c1", g_c1))
             g_c2 = conv2d("c2", g_c1,  ngf*2, 3, 2, "SAME", training=self.training)
             summaries.append(tf.summary.histogram("g_c2", g_c2))
@@ -201,7 +201,7 @@ class CycleGAN:
             summaries.append(tf.summary.histogram("g_c4", g_c4))
             g_c5 = deconv2d("c5", g_c4, ngf,             3, 2, "SAME", training=self.training)
             summaries.append(tf.summary.histogram("g_c5", g_c5))
-            g_c6 = conv2d("c6",   g_c5, self.img_layers, 2, 1, "SAME",
+            g_c6 = conv2d("c6",   g_c5, self.img_layers, 3, 1, "SAME",
                     activation=tf.nn.tanh, batchnorm=False)
             summaries.append(tf.summary.histogram("g_c6", g_c6))
 
