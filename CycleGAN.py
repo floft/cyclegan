@@ -171,7 +171,7 @@ class CycleGAN:
         self.history = history
         self.history_size = history_size
 
-    def create_generator(self, name, input_layer, training):
+    def create_generator(self, name, input_layer):
         l = tf.keras.layers
         ngf = 8 # Filter depth for generator
         summaries = []
@@ -179,23 +179,23 @@ class CycleGAN:
         with tf.variable_scope(name):
             g_pad = tf.pad(input_layer, [[0,0],[3,3],[3,3],[0,0]], "REFLECT")
             summaries.append(tf.summary.histogram("g_pad", g_pad))
-            g_c1 = conv2d("c1", g_pad, ngf,   7, 1, "VALID", training=training)
+            g_c1 = conv2d("c1", g_pad, ngf,   7, 1, "VALID", training=self.training)
             summaries.append(tf.summary.histogram("g_c1", g_c1))
-            g_c2 = conv2d("c2", g_c1,  ngf*2, 3, 2, "SAME", training=training)
+            g_c2 = conv2d("c2", g_c1,  ngf*2, 3, 2, "SAME", training=self.training)
             summaries.append(tf.summary.histogram("g_c2", g_c2))
-            g_c3 = conv2d("c3", g_c2,  ngf*4, 3, 2, "SAME", training=training)
+            g_c3 = conv2d("c3", g_c2,  ngf*4, 3, 2, "SAME", training=self.training)
             summaries.append(tf.summary.histogram("g_c3", g_c3))
 
             assert self.generator_residual_blocks > 0
-            g_r = resnet("r1", g_c3, ngf*4, training=training)
+            g_r = resnet("r1", g_c3, ngf*4, training=self.training)
             summaries.append(tf.summary.histogram("g_r1", g_r))
             for i in range(self.generator_residual_blocks-1):
-                g_r = resnet("r"+str(i+2), g_r, ngf*4, training=training)
+                g_r = resnet("r"+str(i+2), g_r, ngf*4, training=self.training)
                 summaries.append(tf.summary.histogram("g_r"+str(i+2), g_r))
 
-            g_c4 = deconv2d("c4", g_r,  ngf*2,           3, 2, "SAME", training=training)
+            g_c4 = deconv2d("c4", g_r,  ngf*2,           3, 2, "SAME", training=self.training)
             summaries.append(tf.summary.histogram("g_c4", g_c4))
-            g_c5 = deconv2d("c5", g_c4, ngf,             3, 2, "SAME", training=training)
+            g_c5 = deconv2d("c5", g_c4, ngf,             3, 2, "SAME", training=self.training)
             summaries.append(tf.summary.histogram("g_c5", g_c5))
             g_c6 = conv2d("c6",   g_c5, self.img_layers, 7, 1, "SAME",
                     activation=tf.nn.tanh, batchnorm=False)
@@ -203,7 +203,7 @@ class CycleGAN:
 
             return g_c6, summaries
 
-    def create_discriminator(self, name, input_layer, training):
+    def create_discriminator(self, name, input_layer):
         l = tf.keras.layers
         ndf = 16 # Filter depth for discriminator
         summaries = []
@@ -213,13 +213,13 @@ class CycleGAN:
                     activation=tf.nn.leaky_relu, batchnorm=False)
             summaries.append(tf.summary.histogram("d_c1", d_c1))
             d_c2 = conv2d("c2", d_c1,        ndf*2, 4, 2, "SAME",
-                    activation=tf.nn.leaky_relu, training=training)
+                    activation=tf.nn.leaky_relu, training=self.training)
             summaries.append(tf.summary.histogram("d_c2", d_c2))
             d_c3 = conv2d("c3", d_c2,        ndf*4, 4, 2, "SAME",
-                    activation=tf.nn.leaky_relu, training=training)
+                    activation=tf.nn.leaky_relu, training=self.training)
             summaries.append(tf.summary.histogram("d_c3", d_c3))
             d_c4 = conv2d("c4", d_c3,        ndf*8, 4, 1, "SAME",
-                    activation=tf.nn.leaky_relu, training=training)
+                    activation=tf.nn.leaky_relu, training=self.training)
             summaries.append(tf.summary.histogram("d_c4", d_c4))
             d_c5 = conv2d("c5", d_c4,        1,     4, 1, "SAME",
                     activation=None, batchnorm=False) # Radford didn't say disable batchnorm here but tutorial did it
@@ -231,20 +231,13 @@ class CycleGAN:
         #assert isinstance(input_data, dict) and len(input_data) == 2, "input_data must include both images A and B"
         #image_A = input_data['A']
         #image_B = input_data['B']
+        self.training = tf.placeholder(tf.bool, shape=[], name="training") # Changes how batch norm works
         self.image_A = tf.placeholder(tf.float32,
-                                      [self.batch_size, self.img_width, self.img_height, self.img_layers],
+                                      [None, self.img_width, self.img_height, self.img_layers],
                                       name="input_A")
         self.image_B = tf.placeholder(tf.float32,
-                                      [self.batch_size, self.img_width, self.img_height, self.img_layers],
+                                      [None, self.img_width, self.img_height, self.img_layers],
                                       name="input_B")
-
-        # Input images for evaluation, with only a few (eval_images) rather than the full batch size
-        self.eval_image_A = tf.placeholder(tf.float32,
-                                      [self.eval_images, self.img_width, self.img_height, self.img_layers],
-                                      name="eval_input_A")
-        self.eval_image_B = tf.placeholder(tf.float32,
-                                      [self.eval_images, self.img_width, self.img_height, self.img_layers],
-                                      name="eval_input_B")
 
         if self.history:
             # Actually stored here
@@ -266,36 +259,28 @@ class CycleGAN:
         # Create models
         with tf.variable_scope("Model") as scope:
             # Generator on original images
-            self.gen_AtoB, self.hist_summ_g_A = self.create_generator("gen_AtoB", self.image_A, training=True)
-            self.gen_BtoA, self.hist_summ_g_B = self.create_generator("gen_BtoA", self.image_B, training=True)
+            self.gen_AtoB, self.hist_summ_g_A = self.create_generator("gen_AtoB", self.image_A)
+            self.gen_BtoA, self.hist_summ_g_B = self.create_generator("gen_BtoA", self.image_B)
 
             # Discriminator on the original real images
-            self.disc_Areal, self.hist_summ_d_A = self.create_discriminator("discrim_A", self.image_A, training=True)
-            self.disc_Breal, self.hist_summ_d_B = self.create_discriminator("discrim_B", self.image_B, training=True)
+            self.disc_Areal, self.hist_summ_d_A = self.create_discriminator("discrim_A", self.image_A)
+            self.disc_Breal, self.hist_summ_d_B = self.create_discriminator("discrim_B", self.image_B)
 
             scope.reuse_variables()
 
             # Generate from fake back to original (for cycle consistency)
-            self.gen_AtoBtoA, _ = self.create_generator("gen_BtoA", self.gen_AtoB, training=True) # Reuse weights from BtoA
-            self.gen_BtoAtoB, _ = self.create_generator("gen_AtoB", self.gen_BtoA, training=True) # Reuse weights from AtoB
+            self.gen_AtoBtoA, _ = self.create_generator("gen_BtoA", self.gen_AtoB) # Reuse weights from BtoA
+            self.gen_BtoAtoB, _ = self.create_generator("gen_AtoB", self.gen_BtoA) # Reuse weights from AtoB
 
             # Discriminators on the generated fake images
-            self.disc_Afake, _ = self.create_discriminator("discrim_A", self.gen_BtoA, training=True)
-            self.disc_Bfake, _ = self.create_discriminator("discrim_B", self.gen_AtoB, training=True)
-
-            # Evaluation generator (only diff is input placeholder has batch size of self.eval_images, not self.batch_size)
-            scope.reuse_variables()
-            self.eval_gen_AtoB, _ = self.create_generator("gen_AtoB", self.eval_image_A, training=False)
-            self.eval_gen_BtoA, _ = self.create_generator("gen_BtoA", self.eval_image_B, training=False)
-            scope.reuse_variables()
-            self.eval_gen_AtoBtoA, _ = self.create_generator("gen_BtoA", self.eval_gen_AtoB, training=False) # Reuse weights from BtoA
-            self.eval_gen_BtoAtoB, _ = self.create_generator("gen_AtoB", self.eval_gen_BtoA, training=False) # Reuse weights from AtoB
+            self.disc_Afake, _ = self.create_discriminator("discrim_A", self.gen_BtoA)
+            self.disc_Bfake, _ = self.create_discriminator("discrim_B", self.gen_AtoB)
 
             # Discriminators on the generated fake images in the history
             if self.history:
                 scope.reuse_variables()
-                self.hist_disc_Afake, _ = self.create_discriminator("discrim_A", self.hist_pool_A, training=True)
-                self.hist_disc_Bfake, _ = self.create_discriminator("discrim_B", self.hist_pool_B, training=True)
+                self.hist_disc_Afake, _ = self.create_discriminator("discrim_A", self.hist_pool_A)
+                self.hist_disc_Bfake, _ = self.create_discriminator("discrim_B", self.hist_pool_B)
 
         #
         # Loss functions
@@ -355,12 +340,12 @@ class CycleGAN:
         # When running these in the session, change the feed_dict to feed in the evaluation
         # images rather than the training images.
         #
-        realA = denormalize(self.eval_image_A)
-        realB = denormalize(self.eval_image_B)
-        fakeA = denormalize(self.eval_gen_BtoA)
-        fakeB = denormalize(self.eval_gen_AtoB)
-        cycA = denormalize(self.eval_gen_AtoBtoA)
-        cycB = denormalize(self.eval_gen_BtoAtoB)
+        realA = denormalize(self.image_A)
+        realB = denormalize(self.image_B)
+        fakeA = denormalize(self.gen_BtoA)
+        fakeB = denormalize(self.gen_AtoB)
+        cycA = denormalize(self.gen_AtoBtoA)
+        cycB = denormalize(self.gen_BtoAtoB)
 
         self.eval_realA_summ = tf.summary.image("real_A", realA, self.eval_images)
         self.eval_realB_summ = tf.summary.image("real_B", realB, self.eval_images)
@@ -460,7 +445,8 @@ class CycleGAN:
                         _, generatedB, summ = sess.run([self.g_A_trainer, self.gen_AtoB, self.g_A_loss_summ], feed_dict={
                                                      self.image_A: image_A,
                                                      self.image_B: image_B,
-                                                     self.learningRate: currentLearningRate
+                                                     self.learningRate: currentLearningRate,
+                                                     self.training: True
                                                  })
                         writer.add_summary(summ, iteration)
 
@@ -469,6 +455,7 @@ class CycleGAN:
                              self.image_A: image_A,
                              self.image_B: image_B,
                              self.learningRate: currentLearningRate,
+                             self.training: True
                         }
 
                         if self.history:
@@ -482,7 +469,8 @@ class CycleGAN:
                         _, generatedA, summ = sess.run([self.g_B_trainer, self.gen_BtoA, self.g_B_loss_summ], feed_dict={
                                                      self.image_A: image_A,
                                                      self.image_B: image_B,
-                                                     self.learningRate: currentLearningRate
+                                                     self.learningRate: currentLearningRate,
+                                                     self.training: True
                                                  })
                         writer.add_summary(summ, iteration)
 
@@ -490,7 +478,8 @@ class CycleGAN:
                         feed_dict = {
                              self.image_A: image_A,
                              self.image_B: image_B,
-                             self.learningRate: currentLearningRate
+                             self.learningRate: currentLearningRate,
+                             self.training: True
                         }
 
                         if self.history:
@@ -525,22 +514,19 @@ class CycleGAN:
                         sess.run([eval_image_A_iter.initializer, eval_image_B_iter.initializer])
                         eval_image_A, eval_image_B = sess.run([eval_image_A_iter.get_next(), eval_image_B_iter.get_next()])
 
-                        # Make sure we have enough evaluation images (otherwise placeholder won't be filled and will error)
-                        if eval_image_A.shape[0] != self.eval_images or eval_image_B.shape[0] != self.eval_images:
-                            print("Incorrect evaluation batch sizes:", eval_image_A.shape[0], eval_image_B.shape[0])
-                        else:
-                            # Generate eval images
-                            summaries = sess.run([
-                                    self.eval_realA_summ, self.eval_realB_summ,
-                                    self.eval_fakeA_summ, self.eval_fakeB_summ,
-                                    self.eval_cycA_summ,  self.eval_cycB_summ
-                                ], feed_dict={
-                                    self.eval_image_A: eval_image_A,
-                                    self.eval_image_B: eval_image_B
-                                })
+                        # Generate eval images
+                        summaries = sess.run([
+                                self.eval_realA_summ, self.eval_realB_summ,
+                                self.eval_fakeA_summ, self.eval_fakeB_summ,
+                                self.eval_cycA_summ,  self.eval_cycB_summ
+                            ], feed_dict={
+                                self.image_A: eval_image_A,
+                                self.image_B: eval_image_B,
+                                self.training: False
+                            })
 
-                            for s in summaries:
-                                writer.add_summary(s, iteration)
+                        for s in summaries:
+                            writer.add_summary(s, iteration)
 
                     # To see results every so often in TensorBoard
                     if iteration%100 == 0:
