@@ -129,11 +129,11 @@ def resnet(name, inputs, num_outputs):
 class CycleGAN:
     def __init__(self,
                  num_epochs=100,
-                 batch_size=32,
+                 batch_size=128,
                  img_width=72,
                  img_height=72,
                  img_layers=3,
-                 generator_residual_blocks=9,
+                 generator_residual_blocks=6,
                  log_dir="logs",
                  check_dir="models",
                  eval_images=3, # Probably has to be smaller than the batch size
@@ -156,38 +156,54 @@ class CycleGAN:
     def create_generator(self, name, input_layer):
         l = tf.keras.layers
         ngf = 16 # Filter depth for generator, what was used in tutorial
+        summaries = []
 
         with tf.variable_scope(name):
             # TODO
             # - add instance norm, batch norm, group norm or something
             # - add leaky ReLU
             g_pad = tf.pad(input_layer, [[0,0],[3,3],[3,3],[0,0]], "REFLECT")
+            summaries.append(tf.summary.histogram("g_pad", g_pad))
             g_c1 = conv2d("c1", g_pad, ngf,   7, 1, "VALID")
+            summaries.append(tf.summary.histogram("g_c1", g_c1))
             g_c2 = conv2d("c2", g_c1,  ngf*2, 3, 2, "SAME")
+            summaries.append(tf.summary.histogram("g_c2", g_c2))
             g_c3 = conv2d("c3", g_c2,  ngf*4, 3, 2, "SAME")
+            summaries.append(tf.summary.histogram("g_c3", g_c3))
 
             assert self.generator_residual_blocks > 0
             g_r = resnet("r1", g_c3, ngf*4)
+            summaries.append(tf.summary.histogram("g_r1", g_r))
             for i in range(self.generator_residual_blocks-1):
                 g_r = resnet("r"+str(i+2), g_r, ngf*4)
+                summaries.append(tf.summary.histogram("g_r"+str(i+2), g_r))
 
             g_c4 = deconv2d("c4", g_r,  ngf*2,           3, 2, "SAME")
+            summaries.append(tf.summary.histogram("g_c4", g_c4))
             g_c5 = deconv2d("c5", g_c4, ngf,             3, 2, "SAME")
-            g_c6 = conv2d("c6",   g_c5, self.img_layers, 7, 1, "SAME", activation=None)
+            summaries.append(tf.summary.histogram("g_c5", g_c5))
+            g_c6 = conv2d("c6",   g_c5, self.img_layers, 7, 1, "SAME", activation=tf.nn.tanh)
+            summaries.append(tf.summary.histogram("g_c6", g_c6))
 
-            return tf.nn.tanh(g_c6, "t1") # Maybe not needed since I used ReLU for all of them?
+            return g_c6, summaries
 
     def create_discriminator(self, name, input_layer):
         l = tf.keras.layers
         ndf = 32 # Filter depth for discriminator, what was used in tutorial
+        summaries = []
 
         with tf.variable_scope(name):
-            d_c1 = conv2d("c1", input_layer, ndf,   4, 2, "SAME")
-            d_c2 = conv2d("c2", d_c1,        ndf*2, 4, 2, "SAME")
-            d_c3 = conv2d("c3", d_c2,        ndf*4, 4, 2, "SAME")
-            d_c4 = conv2d("c4", d_c3,        ndf*8, 4, 1, "SAME")
+            d_c1 = conv2d("c1", input_layer, ndf,   4, 2, "SAME", activation=tf.nn.leaky_relu)
+            summaries.append(tf.summary.histogram("d_c1", d_c1))
+            d_c2 = conv2d("c2", d_c1,        ndf*2, 4, 2, "SAME", activation=tf.nn.leaky_relu)
+            summaries.append(tf.summary.histogram("d_c2", d_c2))
+            d_c3 = conv2d("c3", d_c2,        ndf*4, 4, 2, "SAME", activation=tf.nn.leaky_relu)
+            summaries.append(tf.summary.histogram("d_c3", d_c3))
+            d_c4 = conv2d("c4", d_c3,        ndf*8, 4, 1, "SAME", activation=tf.nn.leaky_relu)
+            summaries.append(tf.summary.histogram("d_c4", d_c4))
             d_c5 = conv2d("c5", d_c4,        1,     4, 1, "SAME", activation=None)
-            return d_c5
+            summaries.append(tf.summary.histogram("d_c5", d_c5))
+            return d_c5, summaries
 
     def cyclegan_model(self):
         # Get image data directly from features or from "image" if it's a dictionary
@@ -200,6 +216,14 @@ class CycleGAN:
         self.image_B = tf.placeholder(tf.float32,
                                       [self.batch_size, self.img_width, self.img_height, self.img_layers],
                                       name="input_B")
+
+        # Input images for evaluation, with only a few (eval_images) rather than the full batch size
+        self.eval_image_A = tf.placeholder(tf.float32,
+                                      [self.eval_images, self.img_width, self.img_height, self.img_layers],
+                                      name="eval_input_A")
+        self.eval_image_B = tf.placeholder(tf.float32,
+                                      [self.eval_images, self.img_width, self.img_height, self.img_layers],
+                                      name="eval_input_B")
 
         if self.history:
             # Actually stored here
@@ -221,29 +245,36 @@ class CycleGAN:
         # Create models
         with tf.variable_scope("Model") as scope:
             # Generator on original images
-            self.gen_AtoB = self.create_generator("gen_AtoB", self.image_A)
-            self.gen_BtoA = self.create_generator("gen_BtoA", self.image_B)
+            self.gen_AtoB, self.hist_summ_g_A = self.create_generator("gen_AtoB", self.image_A)
+            self.gen_BtoA, self.hist_summ_g_B = self.create_generator("gen_BtoA", self.image_B)
 
             # Discriminator on the original real images
-            self.disc_Areal = self.create_discriminator("discrim_A", self.image_A)
-            self.disc_Breal = self.create_discriminator("discrim_B", self.image_B)
+            self.disc_Areal, self.hist_summ_d_A = self.create_discriminator("discrim_A", self.image_A)
+            self.disc_Breal, self.hist_summ_d_B = self.create_discriminator("discrim_B", self.image_B)
 
             scope.reuse_variables()
 
             # Generate from fake back to original (for cycle consistency)
-            self.gen_AtoBtoA = self.create_generator("gen_BtoA", self.gen_AtoB) # Reuse weights from BtoA
-            self.gen_BtoAtoB = self.create_generator("gen_AtoB", self.gen_BtoA) # Reuse weights from AtoB
+            self.gen_AtoBtoA, _ = self.create_generator("gen_BtoA", self.gen_AtoB) # Reuse weights from BtoA
+            self.gen_BtoAtoB, _ = self.create_generator("gen_AtoB", self.gen_BtoA) # Reuse weights from AtoB
 
             # Discriminators on the generated fake images
-            self.disc_Afake = self.create_discriminator("discrim_A", self.gen_AtoB)
-            self.disc_Bfake = self.create_discriminator("discrim_B", self.gen_BtoA)
+            self.disc_Afake, _ = self.create_discriminator("discrim_A", self.gen_AtoB)
+            self.disc_Bfake, _ = self.create_discriminator("discrim_B", self.gen_BtoA)
 
+            # Evaluation generator (only diff is input placeholder has batch size of self.eval_images, not self.batch_size)
             scope.reuse_variables()
+            self.eval_gen_AtoB, _ = self.create_generator("gen_AtoB", self.eval_image_A)
+            self.eval_gen_BtoA, _ = self.create_generator("gen_BtoA", self.eval_image_B)
+            scope.reuse_variables()
+            self.eval_gen_AtoBtoA, _ = self.create_generator("gen_BtoA", self.eval_gen_AtoB) # Reuse weights from BtoA
+            self.eval_gen_BtoAtoB, _ = self.create_generator("gen_AtoB", self.eval_gen_BtoA) # Reuse weights from AtoB
 
+            # Discriminators on the generated fake images in the history
             if self.history:
-                # Discriminators on the generated fake images in the history
-                self.hist_disc_Afake = self.create_discriminator("discrim_A", self.hist_pool_A)
-                self.hist_disc_Bfake = self.create_discriminator("discrim_B", self.hist_pool_B)
+                scope.reuse_variables()
+                self.hist_disc_Afake, _ = self.create_discriminator("discrim_A", self.hist_pool_A)
+                self.hist_disc_Bfake, _ = self.create_discriminator("discrim_B", self.hist_pool_B)
 
         #
         # Loss functions
@@ -299,12 +330,12 @@ class CycleGAN:
         # When running these in the session, change the feed_dict to feed in the evaluation
         # images rather than the training images.
         #
-        realA = denormalize(self.image_A)
-        realB = denormalize(self.image_B)
-        fakeA = denormalize(self.gen_BtoA)
-        fakeB = denormalize(self.gen_AtoB)
-        cycA = denormalize(self.gen_AtoBtoA)
-        cycB = denormalize(self.gen_BtoAtoB)
+        realA = denormalize(self.eval_image_A)
+        realB = denormalize(self.eval_image_B)
+        fakeA = denormalize(self.eval_gen_BtoA)
+        fakeB = denormalize(self.eval_gen_AtoB)
+        cycA = denormalize(self.eval_gen_AtoBtoA)
+        cycB = denormalize(self.eval_gen_BtoAtoB)
 
         self.eval_realA_summ = tf.summary.image("real_A", realA, self.eval_images)
         self.eval_realB_summ = tf.summary.image("real_B", realB, self.eval_images)
@@ -359,7 +390,7 @@ class CycleGAN:
             self.num_in_pool = 0
 
             # Get evaluation images
-            eval_input_data = test_input_fn(self.batch_size, # "batch" is number of images we want
+            eval_input_data = test_input_fn(self.eval_images, # "batch" is number of images we want
                                         channels=self.img_layers,
                                         resize=[self.img_width,self.img_height])
             eval_image_A_iter = eval_input_data['A']
@@ -384,9 +415,9 @@ class CycleGAN:
 
                 # Decaying learning rate
                 if epoch < 100:
-                    currentLearningRate = 0.0002
+                    currentLearningRate = 0.02
                 else:
-                    currentLearningRate = 0.0002 - 0.0002*(epoch-100)/100 # From tutorial
+                    currentLearningRate = 0.02 - 0.0002*(epoch-100)/100 # From tutorial
 
                 while True:
                     iteration = sess.run(self.iteration)
@@ -449,6 +480,14 @@ class CycleGAN:
                         summ = tf.Summary(value=[tf.Summary.Value(tag="step_time", simple_value=t)])
                         writer.add_summary(summ, iteration)
 
+                        # Log the weights
+                        if iteration%10 == 0:
+                            weight_summaries = self.hist_summ_g_A+self.hist_summ_g_B+self.hist_summ_d_A+self.hist_summ_d_B
+                            summaries = sess.run(weight_summaries, feed_dict=feed_dict)
+
+                            for s in summaries:
+                                writer.add_summary(s, iteration)
+
                         # We've added one more image (batch) to the history
                         self.num_in_pool += 1
 
@@ -460,24 +499,27 @@ class CycleGAN:
                         break
 
                     # Evaluation
-                    if iteration%200 == 0:
+                    if iteration%100 == 0:
                         # Reset iterators for evaluation
                         sess.run([eval_image_A_iter.initializer, eval_image_B_iter.initializer])
                         eval_image_A, eval_image_B = sess.run([eval_image_A_iter.get_next(), eval_image_B_iter.get_next()])
 
-                        # Generate eval images
-                        summaries = sess.run([
-                                self.eval_realA_summ, self.eval_realB_summ,
-                                self.eval_fakeA_summ, self.eval_fakeB_summ,
-                                self.eval_cycA_summ,  self.eval_cycB_summ
-                            ], feed_dict={
-                                self.image_A: eval_image_A,
-                                self.image_B: eval_image_B,
-                                self.learningRate: currentLearningRate
-                            })
+                        # Make sure we have enough evaluation images (otherwise placeholder won't be filled and will error)
+                        if eval_image_A.shape[0] != self.eval_images or eval_image_B.shape[0] != self.eval_images:
+                            print("Incorrect evaluation batch sizes:", eval_image_A.shape[0], eval_image_B.shape[0])
+                        else:
+                            # Generate eval images
+                            summaries = sess.run([
+                                    self.eval_realA_summ, self.eval_realB_summ,
+                                    self.eval_fakeA_summ, self.eval_fakeB_summ,
+                                    self.eval_cycA_summ,  self.eval_cycB_summ
+                                ], feed_dict={
+                                    self.eval_image_A: eval_image_A,
+                                    self.eval_image_B: eval_image_B
+                                })
 
-                        for s in summaries:
-                            writer.add_summary(s, iteration)
+                            for s in summaries:
+                                writer.add_summary(s, iteration)
 
                     # Increment iteration since we've finished another image
                     sess.run(tf.assign(self.iteration, iteration+1))
@@ -488,11 +530,11 @@ class CycleGAN:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--epochs', default=100, type=int, help="Number of epochs")
-    parser.add_argument('--batch', default=32, type=int, help="Batch size")
+    parser.add_argument('--batch', default=128, type=int, help="Batch size")
     parser.add_argument('--width', default=72, type=int, help="Image width")
     parser.add_argument('--height', default=72, type=int, help="Image height")
     parser.add_argument('--channels', default=3, type=int, help="Image channels (e.g. 4 if RGBA)")
-    parser.add_argument('--res', default=9, type=int, help="Number of residual blocks for generator")
+    parser.add_argument('--res', default=6, type=int, help="Number of residual blocks for generator")
     parser.add_argument('--modeldir', default="models", type=str, help="Directory for saving model files")
     parser.add_argument('--logdir', default="logs", type=str, help="Directory for saving log files")
     parser.add_argument('--eval', default=3, type=int, help="Number of images to use for evaluation")
