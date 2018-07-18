@@ -481,7 +481,7 @@ class CycleGAN:
                         writer.add_summary(summ, iteration)
 
                         # Log the weights
-                        if iteration%10 == 0:
+                        if iteration%50 == 0:
                             weight_summaries = self.hist_summ_g_A+self.hist_summ_g_B+self.hist_summ_d_A+self.hist_summ_d_B
                             summaries = sess.run(weight_summaries, feed_dict=feed_dict)
 
@@ -490,10 +490,6 @@ class CycleGAN:
 
                         # We've added one more image (batch) to the history
                         self.num_in_pool += 1
-
-                        # To see results every so often in TensorBoard
-                        if iteration%100 == 0:
-                            writer.flush()
 
                     except tf.errors.OutOfRangeError:
                         break
@@ -520,6 +516,10 @@ class CycleGAN:
 
                             for s in summaries:
                                 writer.add_summary(s, iteration)
+
+                    # To see results every so often in TensorBoard
+                    if iteration%100 == 0:
+                        writer.flush()
 
                     # Increment iteration since we've finished another image
                     sess.run(tf.assign(self.iteration, iteration+1))
