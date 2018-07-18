@@ -152,9 +152,11 @@ class CycleGAN:
                  img_height=72,
                  img_layers=4,
                  generator_residual_blocks=6,
+                 gen_filter_depth=8,
+                 discrim_filter_depth=16,
                  log_dir="logs",
                  check_dir="models",
-                 eval_images=3, # Probably has to be smaller than the batch size
+                 eval_images=3,
                  restore=True,
                  history=True,
                  history_size=50):
@@ -163,17 +165,19 @@ class CycleGAN:
         self.img_width = img_width
         self.img_height = img_height
         self.img_layers = img_layers
+        self.generator_residual_blocks = generator_residual_blocks
+        self.gen_filter_depth = gen_filter_depth
+        self.discrim_filter_depth = discrim_filter_depth
         self.log_dir = log_dir
         self.check_dir = check_dir
         self.eval_images = eval_images
         self.restore = restore
-        self.generator_residual_blocks = generator_residual_blocks
         self.history = history
         self.history_size = history_size
 
     def create_generator(self, name, input_layer):
         l = tf.keras.layers
-        ngf = 8 # Filter depth for generator
+        ngf = self.gen_filter_depth
         summaries = []
 
         with tf.variable_scope(name):
@@ -205,7 +209,7 @@ class CycleGAN:
 
     def create_discriminator(self, name, input_layer):
         l = tf.keras.layers
-        ndf = 16 # Filter depth for discriminator
+        ndf = self.discrim_filter_depth
         summaries = []
 
         with tf.variable_scope(name):
@@ -575,6 +579,8 @@ if __name__ == "__main__":
     parser.add_argument('--height', default=72, type=int, help="Image height")
     parser.add_argument('--channels', default=4, type=int, help="Image channels (e.g. 4 if RGBA)")
     parser.add_argument('--res', default=6, type=int, help="Number of residual blocks for generator")
+    parser.add_argument('--gfd', default=8, type=int, help="Filter depth for generator")
+    parser.add_argument('--dfd', default=16, type=int, help="Filter depth for discriminator")
     parser.add_argument('--modeldir', default="models", type=str, help="Directory for saving model files")
     parser.add_argument('--logdir', default="logs", type=str, help="Directory for saving log files")
     parser.add_argument('--eval', default=3, type=int, help="Number of images to use for evaluation")
@@ -597,6 +603,8 @@ if __name__ == "__main__":
             img_width=args.width,
             img_height=args.height,
             img_layers=args.channels,
+            gen_filter_depth=args.gfd,
+            discrim_filter_depth=args.dfd,
             generator_residual_blocks=args.res,
             log_dir=args.logdir,
             check_dir=args.modeldir,
