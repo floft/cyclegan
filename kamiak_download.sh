@@ -6,7 +6,7 @@ from="$remotessh:$remotedir"
 to="$localdir"
 
 # YOLO backup files and weights, SLURM output files
-rsync -Pahuv --include="*/" \
-    --include="logs/" --include="logs/*" \
-    --include="models/" --include="models/*" \
+rsync -Pahuv \
+    --include="$logFolder/" --include="$logFolder/*" \
+    --include="$modelFolder/" --include="$modelFolder/*" \
     --exclude="*" "$from" "$to"
