@@ -324,14 +324,24 @@ class CycleGAN:
         #
         self.learningRate = tf.placeholder(tf.float32, shape=[], name="learningRate")
 
-        # Required to update batch normalization statistics
-        with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
-            optimizer = tf.train.AdamOptimizer(learning_rate=self.learningRate, beta1=0.5)
+        optimizer = tf.train.AdamOptimizer(learning_rate=self.learningRate, beta1=0.5)
 
-        self.d_A_trainer = optimizer.minimize(d_loss_A, var_list=d_A_vars)
-        self.d_B_trainer = optimizer.minimize(d_loss_B, var_list=d_B_vars)
-        self.g_A_trainer = optimizer.minimize(g_loss_A, var_list=g_A_vars)
-        self.g_B_trainer = optimizer.minimize(g_loss_B, var_list=g_B_vars)
+        # Required to update batch normalization statistics
+        #
+        # Note: doing it by scope since if we do *all* the update ops, then
+        # we'd have to feed in the hist pool each time, even when running the
+        # generator when we don't yet have the results (since we're generating
+        # it)
+        with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS, "Model/discrim_A")):
+            self.d_A_trainer = optimizer.minimize(d_loss_A, var_list=d_A_vars)
+        with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS, "Model/discrim_B")):
+            self.d_B_trainer = optimizer.minimize(d_loss_B, var_list=d_B_vars)
+        with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS, "Model/gen_AtoB")):
+            with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS, "Model/gen_AtoBtoA")):
+                self.g_A_trainer = optimizer.minimize(g_loss_A, var_list=g_A_vars)
+        with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS, "Model/gen_BtoA")):
+            with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS, "Model/gen_BtoAtoB")):
+                self.g_B_trainer = optimizer.minimize(g_loss_B, var_list=g_B_vars)
 
         #
         # Summaries for TensorBoard
