@@ -151,12 +151,12 @@ class CycleGAN:
                  img_width=72,
                  img_height=72,
                  img_layers=4,
-                 generator_residual_blocks=6,
-                 gen_filter_depth=8,
-                 discrim_filter_depth=16,
+                 generator_residual_blocks=9, # Value used in tutorial
+                 gen_filter_depth=32,         # Value used in tutorial
+                 discrim_filter_depth=64,     # Value used in tutorial
                  log_dir="logs",
                  check_dir="models",
-                 eval_images=3,
+                 eval_images=10,
                  restore=True,
                  history=True,
                  history_size=50):
@@ -183,7 +183,7 @@ class CycleGAN:
         with tf.variable_scope(name):
             g_pad = tf.pad(input_layer, [[0,0],[3,3],[3,3],[0,0]], "REFLECT")
             summaries.append(tf.summary.histogram("g_pad", g_pad))
-            g_c1 = conv2d("c1", g_pad, ngf,   7, 1, "VALID", training=self.training)
+            g_c1 = conv2d("c1", g_pad, ngf,   2, 1, "VALID", training=self.training)
             summaries.append(tf.summary.histogram("g_c1", g_c1))
             g_c2 = conv2d("c2", g_c1,  ngf*2, 3, 2, "SAME", training=self.training)
             summaries.append(tf.summary.histogram("g_c2", g_c2))
@@ -201,7 +201,7 @@ class CycleGAN:
             summaries.append(tf.summary.histogram("g_c4", g_c4))
             g_c5 = deconv2d("c5", g_c4, ngf,             3, 2, "SAME", training=self.training)
             summaries.append(tf.summary.histogram("g_c5", g_c5))
-            g_c6 = conv2d("c6",   g_c5, self.img_layers, 7, 1, "SAME",
+            g_c6 = conv2d("c6",   g_c5, self.img_layers, 2, 1, "SAME",
                     activation=tf.nn.tanh, batchnorm=False)
             summaries.append(tf.summary.histogram("g_c6", g_c6))
 
@@ -578,9 +578,9 @@ if __name__ == "__main__":
     parser.add_argument('--width', default=72, type=int, help="Image width")
     parser.add_argument('--height', default=72, type=int, help="Image height")
     parser.add_argument('--channels', default=4, type=int, help="Image channels (e.g. 4 if RGBA)")
-    parser.add_argument('--res', default=6, type=int, help="Number of residual blocks for generator")
-    parser.add_argument('--gfd', default=8, type=int, help="Filter depth for generator")
-    parser.add_argument('--dfd', default=16, type=int, help="Filter depth for discriminator")
+    parser.add_argument('--res', default=9, type=int, help="Number of residual blocks for generator")
+    parser.add_argument('--gfd', default=32, type=int, help="Filter depth for generator")
+    parser.add_argument('--dfd', default=64, type=int, help="Filter depth for discriminator")
     parser.add_argument('--modeldir', default="models", type=str, help="Directory for saving model files")
     parser.add_argument('--logdir', default="logs", type=str, help="Directory for saving log files")
     parser.add_argument('--eval', default=3, type=int, help="Number of images to use for evaluation")
