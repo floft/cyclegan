@@ -464,11 +464,9 @@ class CycleGAN:
                         t = time.time()
                         image_A, image_B = sess.run([next_image_A, next_image_B])
 
-                        # Make sure we have enough in a batch -- the last batch in an epoch will likely
-                        # not be a multiple of our batch size, so it'll be smaller. If it's really small,
-                        # it might mess up the batch statistics, so only use if > 1/2 normal batch size.
-                        if image_A.shape[0] < self.batch_size/2 or image_B.shape[0] < self.batch_size/2:
-                            print("Too small of batch sizes:", image_A.shape[0], image_B.shape[0])
+                        # Make sure we have a full batch
+                        if image_A.shape[0] != self.batch_size or image_B.shape[0] != self.batch_size:
+                            print("Incorrect batch sizes:", image_A.shape[0], image_B.shape[0])
                             break
 
                         # Optimize gen_AtoB
