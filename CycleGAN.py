@@ -151,15 +151,17 @@ class CycleGAN:
                  img_width=72,
                  img_height=72,
                  img_layers=4,
-                 generator_residual_blocks=9, # Value used in tutorial
-                 gen_filter_depth=32,         # Value used in tutorial
-                 discrim_filter_depth=64,     # Value used in tutorial
+                 generator_residual_blocks=3,
+                 gen_filter_depth=16,
+                 discrim_filter_depth=16,
                  log_dir="logs",
                  check_dir="models",
                  eval_images=10,
                  restore=True,
                  history=True,
-                 history_size=50):
+                 history_size=50,
+                 patch=True,
+                 patchsize=20):
         self.num_epochs = num_epochs
         self.batch_size = batch_size
         self.img_width = img_width
@@ -174,16 +176,17 @@ class CycleGAN:
         self.restore = restore
         self.history = history
         self.history_size = history_size
+        self.patch = patch
+        self.patchsize = patchsize
 
     def create_generator(self, name, input_layer):
-        l = tf.keras.layers
         ngf = self.gen_filter_depth
         summaries = []
 
         with tf.variable_scope(name):
-            g_pad = tf.pad(input_layer, [[0,0],[1,1],[1,1],[0,0]], "REFLECT") # 1/2 of start/end depth - 1
+            g_pad = tf.pad(input_layer, [[0,0],[3,3],[3,3],[0,0]], "REFLECT") # 1/2 of start/end depth - 1
             summaries.append(tf.summary.histogram("g_pad", g_pad))
-            g_c1 = conv2d("c1", g_pad, ngf,   3, 1, "VALID", training=self.training)
+            g_c1 = conv2d("c1", g_pad, ngf,   7, 1, "VALID", training=self.training)
             summaries.append(tf.summary.histogram("g_c1", g_c1))
             g_c2 = conv2d("c2", g_c1,  ngf*2, 3, 2, "SAME", training=self.training)
             summaries.append(tf.summary.histogram("g_c2", g_c2))
@@ -201,19 +204,23 @@ class CycleGAN:
             summaries.append(tf.summary.histogram("g_c4", g_c4))
             g_c5 = deconv2d("c5", g_c4, ngf,             3, 2, "SAME", training=self.training)
             summaries.append(tf.summary.histogram("g_c5", g_c5))
-            g_c6 = conv2d("c6",   g_c5, self.img_layers, 3, 1, "SAME",
+            g_c6 = conv2d("c6",   g_c5, self.img_layers, 7, 1, "SAME",
                     activation=tf.nn.tanh, batchnorm=False)
             summaries.append(tf.summary.histogram("g_c6", g_c6))
 
             return g_c6, summaries
 
     def create_discriminator(self, name, input_layer):
-        l = tf.keras.layers
         ndf = self.discrim_filter_depth
         summaries = []
 
         with tf.variable_scope(name):
-            d_c1 = conv2d("c1", input_layer, ndf,   4, 2, "SAME",
+            # How the tutorial implemented it
+            if self.patch:
+                input_layer = tf.random_crop(input_layer,
+                        [self.batch_size, self.patchsize, self.patchsize, self.img_layers])
+
+            d_c1 = conv2d("c1", input_layer, ndf,   4, 1, "SAME",
                     activation=tf.nn.leaky_relu, batchnorm=False)
             summaries.append(tf.summary.histogram("d_c1", d_c1))
             d_c2 = conv2d("c2", d_c1,        ndf*2, 4, 2, "SAME",
@@ -562,7 +569,7 @@ class CycleGAN:
                             writer.add_summary(s, iteration)
 
                     # To see results every so often in TensorBoard
-                    if iteration%100 == 0:
+                    if iteration%50 == 0:
                         writer.flush()
 
                     # Increment iteration since we've finished another image
@@ -578,19 +585,22 @@ if __name__ == "__main__":
     parser.add_argument('--width', default=72, type=int, help="Image width")
     parser.add_argument('--height', default=72, type=int, help="Image height")
     parser.add_argument('--channels', default=4, type=int, help="Image channels (e.g. 4 if RGBA)")
-    parser.add_argument('--res', default=9, type=int, help="Number of residual blocks for generator")
-    parser.add_argument('--gfd', default=32, type=int, help="Filter depth for generator")
-    parser.add_argument('--dfd', default=64, type=int, help="Filter depth for discriminator")
+    parser.add_argument('--res', default=3, type=int, help="Number of residual blocks for generator")
+    parser.add_argument('--gfd', default=16, type=int, help="Filter depth for generator")
+    parser.add_argument('--dfd', default=16, type=int, help="Filter depth for discriminator")
     parser.add_argument('--modeldir', default="models", type=str, help="Directory for saving model files")
     parser.add_argument('--logdir', default="logs", type=str, help="Directory for saving log files")
-    parser.add_argument('--eval', default=3, type=int, help="Number of images to use for evaluation")
+    parser.add_argument('--eval', default=10, type=int, help="Number of images to use for evaluation")
     parser.add_argument('--restore', dest='restore', action='store_true', help="Restore from saved checkpoints (default)")
     parser.add_argument('--no-restore', dest='restore', action='store_false', help="Do not restore from saved checkpoints")
     parser.add_argument('--history', dest='history', action='store_true', help="Use history of past generated images (default)")
     parser.add_argument('--no-history', dest='history', action='store_false', help="Do not use history of past generated images")
-    parser.add_argument('--histsize', default=50, type=int, help="Number of images to use in history")
+    parser.add_argument('--histsize', default=50, type=int, help="Number of images to use in history (if enabled)")
+    parser.add_argument('--patch', dest='patch', action='store_true', help="Use PatchGAN for discrimator (default)")
+    parser.add_argument('--no-patch', dest='patch', action='store_false', help="Do not use PatchGAN for discriminator")
+    parser.add_argument('--patchsize', default=20, type=int, help="Size of patch for PatchGAN (if enabled)")
     parser.add_argument('--display', dest='display', action='store_true', help="Display samples from dataset instead of training")
-    parser.set_defaults(restore=True, history=True, display=False)
+    parser.set_defaults(restore=True, history=True, patch=True, display=False)
     args = parser.parse_args()
 
     if args.display:
@@ -611,5 +621,7 @@ if __name__ == "__main__":
             eval_images=args.eval,
             restore=args.restore,
             history=args.history,
-            history_size=args.histsize
+            history_size=args.histsize,
+            patch=args.patch,
+            patchsize=args.patchsize
         ).run()
