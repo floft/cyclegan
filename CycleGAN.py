@@ -311,6 +311,13 @@ class CycleGAN:
         g_A_vars = [v for v in variables if 'gen_A' in v.name]
         d_B_vars = [v for v in variables if 'discrim_B' in v.name]
         g_B_vars = [v for v in variables if 'gen_B' in v.name]
+        # For logging
+        batch_vars = [v for v in variables if 'batch_normalization' in v.name]
+        weight_vars = [v for v in variables if 'weights' in v.name]
+        bias_vars = [v for v in variables if 'biases' in v.name]
+        # Moving averages (separate since these are not trainable)
+        global_variables = tf.global_variables()
+        moving_batch_vars = [v for v in global_variables if 'moving_' in v.name]
 
         #
         # Optimization
@@ -329,10 +336,18 @@ class CycleGAN:
         #
         # Summaries for TensorBoard
         #
+
+        # Outputs of layers (will be listed under "Model/")
         self.g_A_loss_summ = tf.summary.scalar("g_A_loss", g_loss_A)
         self.g_B_loss_summ = tf.summary.scalar("g_B_loss", g_loss_B)
         self.d_A_loss_summ = tf.summary.scalar("d_A_loss", d_loss_A)
         self.d_B_loss_summ = tf.summary.scalar("d_B_loss", d_loss_B)
+
+        # Weights (will be listed under "gen_AtoB", "gen_BtoA", "discrim_A", and "discrim_B")
+        self.weights_summ = []
+
+        for v in moving_batch_vars+batch_vars+weight_vars+bias_vars:
+            self.weights_summ.append(tf.summary.histogram(v.name.replace("Model/","").replace(":0",""), v))
 
         #
         # For evaluation
@@ -384,7 +399,6 @@ class CycleGAN:
         if not os.path.exists(self.check_dir):
             os.makedirs(self.check_dir)
 
-        #with tf.Session(config=tf.ConfigProto(log_device_placement=True)) as sess:
         with tf.Session() as sess:
             tf.local_variables_initializer().run()
             tf.global_variables_initializer().run()
@@ -496,7 +510,9 @@ class CycleGAN:
 
                         # Log the weights
                         if iteration%50 == 0:
-                            weight_summaries = self.hist_summ_g_A+self.hist_summ_g_B+self.hist_summ_d_A+self.hist_summ_d_B
+                            weight_summaries = self.hist_summ_g_A + self.hist_summ_g_B + \
+                                               self.hist_summ_d_A + self.hist_summ_d_B + \
+                                               self.weights_summ
                             summaries = sess.run(weight_summaries, feed_dict=feed_dict)
 
                             for s in summaries:
@@ -509,6 +525,9 @@ class CycleGAN:
                         break
 
                     # Evaluation
+                    #
+                    # TODO split this to be run at end even if all the training
+                    #      has been done (e.g. even if all epochs finished)
                     if iteration%100 == 0:
                         # Reset iterators for evaluation
                         sess.run([eval_image_A_iter.initializer, eval_image_B_iter.initializer])
