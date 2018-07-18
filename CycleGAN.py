@@ -259,8 +259,8 @@ class CycleGAN:
             self.gen_BtoAtoB, _ = self.create_generator("gen_AtoB", self.gen_BtoA) # Reuse weights from AtoB
 
             # Discriminators on the generated fake images
-            self.disc_Afake, _ = self.create_discriminator("discrim_A", self.gen_AtoB)
-            self.disc_Bfake, _ = self.create_discriminator("discrim_B", self.gen_BtoA)
+            self.disc_Afake, _ = self.create_discriminator("discrim_A", self.gen_BtoA)
+            self.disc_Bfake, _ = self.create_discriminator("discrim_B", self.gen_AtoB)
 
             # Evaluation generator (only diff is input placeholder has batch size of self.eval_images, not self.batch_size)
             scope.reuse_variables()
@@ -282,8 +282,8 @@ class CycleGAN:
         # Generator should by cycle consistent & we want the discriminator to output a 1, i.e. incorrect label
         cyc_loss = tf.reduce_mean(tf.abs(self.image_A-self.gen_AtoBtoA)) + \
                    tf.reduce_mean(tf.abs(self.image_B-self.gen_BtoAtoB))
-        g_loss_A = cyc_loss*10 + tf.reduce_mean(tf.squared_difference(self.disc_Afake,1))
-        g_loss_B = cyc_loss*10 + tf.reduce_mean(tf.squared_difference(self.disc_Bfake,1))
+        g_loss_A = cyc_loss*10 + tf.reduce_mean(tf.squared_difference(self.disc_Bfake,1)) # loss for gen_AtoB
+        g_loss_B = cyc_loss*10 + tf.reduce_mean(tf.squared_difference(self.disc_Afake,1)) # loss for gen_BtoA
 
         # Discriminator should correctly classify the original real images and the generated fake images
         if self.history:
