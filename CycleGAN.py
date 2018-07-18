@@ -104,19 +104,31 @@ def show(titles, input_data, num=20, cols=10):
 #
 # Implementing the GAN
 #
-def conv2d(name, inputs, num_outputs, kernel_size, stride, padding, stddev=0.02, activation=tf.nn.relu):
+def conv2d(name, inputs, num_outputs, kernel_size, stride, padding,
+        stddev=0.02, activation=tf.nn.relu, batchnorm=True, training=False):
     with tf.variable_scope(name):
-        return tf.contrib.layers.conv2d(inputs, num_outputs, kernel_size, stride, padding,
+        conv = tf.contrib.layers.conv2d(inputs, num_outputs, kernel_size, stride, padding,
                                         activation_fn=activation,
                                         weights_initializer=tf.truncated_normal_initializer(stddev=stddev),
                                         biases_initializer=tf.constant_initializer(0.0))
 
-def deconv2d(name, inputs, num_outputs, kernel_size, stride, padding, stddev=0.02, activation=tf.nn.relu):
+        if batchnorm:
+            return tf.layers.batch_normalization(conv, training=training)
+        else:
+            return conv
+
+def deconv2d(name, inputs, num_outputs, kernel_size, stride, padding,
+        stddev=0.02, activation=tf.nn.relu, batchnorm=True, training=False):
     with tf.variable_scope(name):
-        return tf.contrib.layers.conv2d_transpose(inputs, num_outputs, kernel_size, stride, padding,
+        conv = tf.contrib.layers.conv2d_transpose(inputs, num_outputs, kernel_size, stride, padding,
                                                   activation_fn=activation,
                                                   weights_initializer=tf.truncated_normal_initializer(stddev=stddev),
                                                   biases_initializer=tf.constant_initializer(0.0))
+
+        if batchnorm:
+            return tf.layers.batch_normalization(conv, training=training)
+        else:
+            return conv
 
 def resnet(name, inputs, num_outputs):
     with tf.variable_scope(name):
@@ -153,7 +165,7 @@ class CycleGAN:
         self.history = history
         self.history_size = history_size
 
-    def create_generator(self, name, input_layer):
+    def create_generator(self, name, input_layer, training):
         l = tf.keras.layers
         ngf = 8 # Filter depth for generator
         summaries = []
@@ -164,11 +176,11 @@ class CycleGAN:
             # - add leaky ReLU
             g_pad = tf.pad(input_layer, [[0,0],[3,3],[3,3],[0,0]], "REFLECT")
             summaries.append(tf.summary.histogram("g_pad", g_pad))
-            g_c1 = conv2d("c1", g_pad, ngf,   7, 1, "VALID")
+            g_c1 = conv2d("c1", g_pad, ngf,   7, 1, "VALID", training=training)
             summaries.append(tf.summary.histogram("g_c1", g_c1))
-            g_c2 = conv2d("c2", g_c1,  ngf*2, 3, 2, "SAME")
+            g_c2 = conv2d("c2", g_c1,  ngf*2, 3, 2, "SAME", training=training)
             summaries.append(tf.summary.histogram("g_c2", g_c2))
-            g_c3 = conv2d("c3", g_c2,  ngf*4, 3, 2, "SAME")
+            g_c3 = conv2d("c3", g_c2,  ngf*4, 3, 2, "SAME", training=training)
             summaries.append(tf.summary.histogram("g_c3", g_c3))
 
             assert self.generator_residual_blocks > 0
@@ -178,28 +190,33 @@ class CycleGAN:
                 g_r = resnet("r"+str(i+2), g_r, ngf*4)
                 summaries.append(tf.summary.histogram("g_r"+str(i+2), g_r))
 
-            g_c4 = deconv2d("c4", g_r,  ngf*2,           3, 2, "SAME")
+            g_c4 = deconv2d("c4", g_r,  ngf*2,           3, 2, "SAME", training=training)
             summaries.append(tf.summary.histogram("g_c4", g_c4))
-            g_c5 = deconv2d("c5", g_c4, ngf,             3, 2, "SAME")
+            g_c5 = deconv2d("c5", g_c4, ngf,             3, 2, "SAME", training=training)
             summaries.append(tf.summary.histogram("g_c5", g_c5))
-            g_c6 = conv2d("c6",   g_c5, self.img_layers, 7, 1, "SAME", activation=tf.nn.tanh)
+            g_c6 = conv2d("c6",   g_c5, self.img_layers, 7, 1, "SAME",
+                    activation=tf.nn.tanh, batchnorm=False)
             summaries.append(tf.summary.histogram("g_c6", g_c6))
 
             return g_c6, summaries
 
-    def create_discriminator(self, name, input_layer):
+    def create_discriminator(self, name, input_layer, training):
         l = tf.keras.layers
         ndf = 16 # Filter depth for discriminator
         summaries = []
 
         with tf.variable_scope(name):
-            d_c1 = conv2d("c1", input_layer, ndf,   4, 2, "SAME", activation=tf.nn.leaky_relu)
+            d_c1 = conv2d("c1", input_layer, ndf,   4, 2, "SAME",
+                    activation=tf.nn.leaky_relu, batchnorm=False)
             summaries.append(tf.summary.histogram("d_c1", d_c1))
-            d_c2 = conv2d("c2", d_c1,        ndf*2, 4, 2, "SAME", activation=tf.nn.leaky_relu)
+            d_c2 = conv2d("c2", d_c1,        ndf*2, 4, 2, "SAME",
+                    activation=tf.nn.leaky_relu, training=training)
             summaries.append(tf.summary.histogram("d_c2", d_c2))
-            d_c3 = conv2d("c3", d_c2,        ndf*4, 4, 2, "SAME", activation=tf.nn.leaky_relu)
+            d_c3 = conv2d("c3", d_c2,        ndf*4, 4, 2, "SAME",
+                    activation=tf.nn.leaky_relu, training=training)
             summaries.append(tf.summary.histogram("d_c3", d_c3))
-            d_c4 = conv2d("c4", d_c3,        ndf*8, 4, 1, "SAME", activation=tf.nn.leaky_relu)
+            d_c4 = conv2d("c4", d_c3,        ndf*8, 4, 1, "SAME",
+                    activation=tf.nn.leaky_relu, training=training)
             summaries.append(tf.summary.histogram("d_c4", d_c4))
             d_c5 = conv2d("c5", d_c4,        1,     4, 1, "SAME", activation=None)
             summaries.append(tf.summary.histogram("d_c5", d_c5))
@@ -245,36 +262,42 @@ class CycleGAN:
         # Create models
         with tf.variable_scope("Model") as scope:
             # Generator on original images
-            self.gen_AtoB, self.hist_summ_g_A = self.create_generator("gen_AtoB", self.image_A)
-            self.gen_BtoA, self.hist_summ_g_B = self.create_generator("gen_BtoA", self.image_B)
+            training = True
+            self.gen_AtoB, self.hist_summ_g_A = self.create_generator("gen_AtoB", self.image_A, training)
+            self.gen_BtoA, self.hist_summ_g_B = self.create_generator("gen_BtoA", self.image_B, training)
 
             # Discriminator on the original real images
-            self.disc_Areal, self.hist_summ_d_A = self.create_discriminator("discrim_A", self.image_A)
-            self.disc_Breal, self.hist_summ_d_B = self.create_discriminator("discrim_B", self.image_B)
+            training = True
+            self.disc_Areal, self.hist_summ_d_A = self.create_discriminator("discrim_A", self.image_A, training)
+            self.disc_Breal, self.hist_summ_d_B = self.create_discriminator("discrim_B", self.image_B, training)
 
             scope.reuse_variables()
 
             # Generate from fake back to original (for cycle consistency)
-            self.gen_AtoBtoA, _ = self.create_generator("gen_BtoA", self.gen_AtoB) # Reuse weights from BtoA
-            self.gen_BtoAtoB, _ = self.create_generator("gen_AtoB", self.gen_BtoA) # Reuse weights from AtoB
+            training = True
+            self.gen_AtoBtoA, _ = self.create_generator("gen_BtoA", self.gen_AtoB, training) # Reuse weights from BtoA
+            self.gen_BtoAtoB, _ = self.create_generator("gen_AtoB", self.gen_BtoA, training) # Reuse weights from AtoB
 
             # Discriminators on the generated fake images
-            self.disc_Afake, _ = self.create_discriminator("discrim_A", self.gen_BtoA)
-            self.disc_Bfake, _ = self.create_discriminator("discrim_B", self.gen_AtoB)
+            training = True
+            self.disc_Afake, _ = self.create_discriminator("discrim_A", self.gen_BtoA, training)
+            self.disc_Bfake, _ = self.create_discriminator("discrim_B", self.gen_AtoB, training)
 
             # Evaluation generator (only diff is input placeholder has batch size of self.eval_images, not self.batch_size)
+            training = False # These are the only ones not training
             scope.reuse_variables()
-            self.eval_gen_AtoB, _ = self.create_generator("gen_AtoB", self.eval_image_A)
-            self.eval_gen_BtoA, _ = self.create_generator("gen_BtoA", self.eval_image_B)
+            self.eval_gen_AtoB, _ = self.create_generator("gen_AtoB", self.eval_image_A, training)
+            self.eval_gen_BtoA, _ = self.create_generator("gen_BtoA", self.eval_image_B, training)
             scope.reuse_variables()
-            self.eval_gen_AtoBtoA, _ = self.create_generator("gen_BtoA", self.eval_gen_AtoB) # Reuse weights from BtoA
-            self.eval_gen_BtoAtoB, _ = self.create_generator("gen_AtoB", self.eval_gen_BtoA) # Reuse weights from AtoB
+            self.eval_gen_AtoBtoA, _ = self.create_generator("gen_BtoA", self.eval_gen_AtoB, training) # Reuse weights from BtoA
+            self.eval_gen_BtoAtoB, _ = self.create_generator("gen_AtoB", self.eval_gen_BtoA, training) # Reuse weights from AtoB
 
             # Discriminators on the generated fake images in the history
             if self.history:
+                training = True
                 scope.reuse_variables()
-                self.hist_disc_Afake, _ = self.create_discriminator("discrim_A", self.hist_pool_A)
-                self.hist_disc_Bfake, _ = self.create_discriminator("discrim_B", self.hist_pool_B)
+                self.hist_disc_Afake, _ = self.create_discriminator("discrim_A", self.hist_pool_A, training)
+                self.hist_disc_Bfake, _ = self.create_discriminator("discrim_B", self.hist_pool_B, training)
 
         #
         # Loss functions
@@ -310,7 +333,11 @@ class CycleGAN:
         # Optimization
         #
         self.learningRate = tf.placeholder(tf.float32, shape=[], name="learningRate")
-        optimizer = tf.train.AdamOptimizer(learning_rate=self.learningRate, beta1=0.5)
+
+        # Required to update batch normalization statistics
+        with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
+            optimizer = tf.train.AdamOptimizer(learning_rate=self.learningRate, beta1=0.5)
+
         self.d_A_trainer = optimizer.minimize(d_loss_A, var_list=d_A_vars)
         self.d_B_trainer = optimizer.minimize(d_loss_B, var_list=d_B_vars)
         self.g_A_trainer = optimizer.minimize(g_loss_A, var_list=g_A_vars)
