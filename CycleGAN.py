@@ -132,7 +132,7 @@ class CycleGAN:
                  batch_size=128,
                  img_width=72,
                  img_height=72,
-                 img_layers=3,
+                 img_layers=4,
                  generator_residual_blocks=6,
                  log_dir="logs",
                  check_dir="models",
@@ -155,7 +155,7 @@ class CycleGAN:
 
     def create_generator(self, name, input_layer):
         l = tf.keras.layers
-        ngf = 16 # Filter depth for generator, what was used in tutorial
+        ngf = 8 # Filter depth for generator
         summaries = []
 
         with tf.variable_scope(name):
@@ -189,7 +189,7 @@ class CycleGAN:
 
     def create_discriminator(self, name, input_layer):
         l = tf.keras.layers
-        ndf = 32 # Filter depth for discriminator, what was used in tutorial
+        ndf = 16 # Filter depth for discriminator
         summaries = []
 
         with tf.variable_scope(name):
@@ -415,9 +415,9 @@ class CycleGAN:
 
                 # Decaying learning rate
                 if epoch < 100:
-                    currentLearningRate = 0.02
+                    currentLearningRate = 0.002
                 else:
-                    currentLearningRate = 0.02 - 0.0002*(epoch-100)/100 # From tutorial
+                    currentLearningRate = 0.002 - 0.002*(epoch-100)/100 # From tutorial
 
                 while True:
                     iteration = sess.run(self.iteration)
@@ -533,7 +533,7 @@ if __name__ == "__main__":
     parser.add_argument('--batch', default=128, type=int, help="Batch size")
     parser.add_argument('--width', default=72, type=int, help="Image width")
     parser.add_argument('--height', default=72, type=int, help="Image height")
-    parser.add_argument('--channels', default=3, type=int, help="Image channels (e.g. 4 if RGBA)")
+    parser.add_argument('--channels', default=4, type=int, help="Image channels (e.g. 4 if RGBA)")
     parser.add_argument('--res', default=6, type=int, help="Number of residual blocks for generator")
     parser.add_argument('--modeldir', default="models", type=str, help="Directory for saving model files")
     parser.add_argument('--logdir', default="logs", type=str, help="Directory for saving log files")
