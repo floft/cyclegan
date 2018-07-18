@@ -542,7 +542,7 @@ class CycleGAN:
                     #
                     # TODO split this to be run at end even if all the training
                     #      has been done (e.g. even if all epochs finished)
-                    if iteration%100 == 0:
+                    if iteration%50 == 0:
                         # Reset iterators for evaluation
                         sess.run([eval_image_A_iter.initializer, eval_image_B_iter.initializer])
                         eval_image_A, eval_image_B = sess.run([eval_image_A_iter.get_next(), eval_image_B_iter.get_next()])
