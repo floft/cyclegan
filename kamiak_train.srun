@@ -7,8 +7,8 @@
 #SBATCH --nodes=1-1
 #SBATCH --gres=gpu:tesla:8
 #SBATCH --partition=taylor,kamiak,cahnrs_gpu,free_gpu,vcea,cahnrs,cahnrs_bigmem
-#SBATCH --time=0-12:00:00
-#SBATCH --mem=20G
+#SBATCH --time=4-00:00:00
+#SBATCH --mem=100G
 
 . kamiak_config.sh
 
@@ -52,7 +52,11 @@ echo "Making sure TensorFlow installed: done"
 # Train
 echo "Training network: started"
 mkdir -p "$data/$logFolder/" # log dir, rsync this to view with TensorBoard
-python3 "$program" --logdir "$data/$logFolder" --modeldir "$data/$modelFolder"
+python3 "$program" --logdir "$data/$logFolder" --modeldir "$data/$modelFolder" \
+    --A "$A" --B "$B" --Atest "$Atest" --Btest "$Btest" \
+    --width "$width" --height "$height" --patchsize "$patchsize" \
+    --batch="$batchsize" --channels="$channels" --gfd="$gfd" --dfd="$dfd" \
+    --res="$residualblocks"
 echo "Training network: done"
 
 # Cleanup

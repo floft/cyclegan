@@ -47,10 +47,12 @@ def _parse_function(filename, channels=4, resize=None):
 
     return image_norm
 
-def train_input_fn(batch_size=1, channels=4, resize=None):
+def train_input_fn(batch_size=1, channels=4, resize=None,
+        A="emojis/Apple/*.png",
+        B="emojis/Windows/*.png"):
     """ Get tensors of training data for image sets A and B """
-    apple = tf.data.Dataset.list_files("emojis/Apple/*.png").map(lambda x: _parse_function(x,channels,resize))
-    windows = tf.data.Dataset.list_files("emojis/Windows/*.png").map(lambda x: _parse_function(x,channels,resize))
+    apple = tf.data.Dataset.list_files(A).map(lambda x: _parse_function(x,channels,resize))
+    windows = tf.data.Dataset.list_files(B).map(lambda x: _parse_function(x,channels,resize))
 
     apple_iter = apple.shuffle(10000).batch(batch_size).make_initializable_iterator()
     windows_iter = windows.shuffle(10000).batch(batch_size).make_initializable_iterator()
@@ -59,10 +61,12 @@ def train_input_fn(batch_size=1, channels=4, resize=None):
         'B': windows_iter
     }
 
-def test_input_fn(batch_size=1, channels=4, resize=None, seed=42):
+def test_input_fn(batch_size=1, channels=4, resize=None, seed=42,
+        A="emojis/Test_Apple/*.png",
+        B="emojis/Test_Windows/*.png"):
     """ Get tensors of testing data for image sets A and B """
-    apple = tf.data.Dataset.list_files("emojis/Test_Apple/*.png").map(lambda x: _parse_function(x,channels,resize))
-    windows = tf.data.Dataset.list_files("emojis/Test_Windows/*.png").map(lambda x: _parse_function(x,channels,resize))
+    apple = tf.data.Dataset.list_files(A).map(lambda x: _parse_function(x,channels,resize))
+    windows = tf.data.Dataset.list_files(B).map(lambda x: _parse_function(x,channels,resize))
 
     apple_iter = apple.shuffle(10000,seed=seed).batch(batch_size).make_initializable_iterator()
     windows_iter = windows.shuffle(10000,seed=seed).batch(batch_size).make_initializable_iterator()
@@ -146,7 +150,7 @@ def resnet(name, inputs, num_outputs, training=False):
 
 class CycleGAN:
     def __init__(self,
-                 num_epochs=100,
+                 num_epochs=5000,
                  batch_size=128,
                  img_width=72,
                  img_height=72,
@@ -161,7 +165,11 @@ class CycleGAN:
                  history=True,
                  history_size=50,
                  patch=True,
-                 patchsize=20):
+                 patchsize=20,
+                 A="emojis/Apple/*.png",
+                 B="emojis/Windows/*.png",
+                 Atest="emojis/Test_Apple/*.png",
+                 Btest="emojis/Test_Windows/*.png"):
         self.num_epochs = num_epochs
         self.batch_size = batch_size
         self.img_width = img_width
@@ -178,6 +186,10 @@ class CycleGAN:
         self.history_size = history_size
         self.patch = patch
         self.patchsize = patchsize
+        self.A = A
+        self.B = B
+        self.Atest = Atest
+        self.Btest = Btest
 
     def create_generator(self, name, input_layer):
         ngf = self.gen_filter_depth
@@ -220,7 +232,7 @@ class CycleGAN:
                 input_layer = tf.random_crop(input_layer,
                         [self.batch_size, self.patchsize, self.patchsize, self.img_layers])
 
-            d_c1 = conv2d("c1", input_layer, ndf,   4, 1, "SAME",
+            d_c1 = conv2d("c1", input_layer, ndf,   4, 2, "SAME",
                     activation=tf.nn.leaky_relu, batchnorm=False)
             summaries.append(tf.summary.histogram("d_c1", d_c1))
             d_c2 = conv2d("c2", d_c1,        ndf*2, 4, 2, "SAME",
@@ -414,7 +426,7 @@ class CycleGAN:
         self.cyclegan_model()
 
         # Saving content checkpoints and summaries to disk
-        saver = tf.train.Saver()
+        saver = tf.train.Saver(max_to_keep=self.num_epochs)
         writer = tf.summary.FileWriter(self.log_dir)
 
         if not os.path.exists(self.check_dir):
@@ -427,7 +439,8 @@ class CycleGAN:
             # Get training input images
             input_data = train_input_fn(self.batch_size,
                                         channels=self.img_layers,
-                                        resize=[self.img_width,self.img_height])
+                                        resize=[self.img_width,self.img_height],
+                                        A=self.A, B=self.B)
             image_A_iter = input_data['A']
             image_B_iter = input_data['B']
 
@@ -437,7 +450,8 @@ class CycleGAN:
             # Get evaluation images
             eval_input_data = test_input_fn(self.eval_images, # "batch" is number of images we want
                                         channels=self.img_layers,
-                                        resize=[self.img_width,self.img_height])
+                                        resize=[self.img_width,self.img_height],
+                                        A=self.Atest, B=self.Btest)
             eval_image_A_iter = eval_input_data['A']
             eval_image_B_iter = eval_input_data['B']
 
@@ -569,7 +583,7 @@ class CycleGAN:
                             writer.add_summary(s, iteration)
 
                     # To see results every so often in TensorBoard
-                    if iteration%50 == 0:
+                    if iteration%10 == 0:
                         writer.flush()
 
                     # Increment iteration since we've finished another image
@@ -580,7 +594,7 @@ class CycleGAN:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--epochs', default=100, type=int, help="Number of epochs")
+    parser.add_argument('--epochs', default=1000, type=int, help="Number of epochs")
     parser.add_argument('--batch', default=128, type=int, help="Batch size")
     parser.add_argument('--width', default=72, type=int, help="Image width")
     parser.add_argument('--height', default=72, type=int, help="Image height")
@@ -600,12 +614,16 @@ if __name__ == "__main__":
     parser.add_argument('--no-patch', dest='patch', action='store_false', help="Do not use PatchGAN for discriminator")
     parser.add_argument('--patchsize', default=20, type=int, help="Size of patch for PatchGAN (if enabled)")
     parser.add_argument('--display', dest='display', action='store_true', help="Display samples from dataset instead of training")
+    parser.add_argument('--A', default="emojis/Apple/*.png", type=str, help="Dataset A files")
+    parser.add_argument('--B', default="emojis/Windows/*.png", type=str, help="Dataset A files")
+    parser.add_argument('--Atest', default="emojis/Test_Apple/*.png", type=str, help="Dataset A files")
+    parser.add_argument('--Btest', default="emojis/Test_Windows/*.png", type=str, help="Dataset A files")
     parser.set_defaults(restore=True, history=True, patch=True, display=False)
     args = parser.parse_args()
 
     if args.display:
-        show(["Train Apple", "Train Windows"], train_input_fn())
-        show(["Test Apple", "Test Windows"], test_input_fn())
+        show(["Train Apple", "Train Windows"], train_input_fn(channels=args.channels, A=args.A, B=args.B))
+        show(["Test Apple", "Test Windows"], test_input_fn(channels=args.channels, A=args.Atest, B=args.Btest))
     else:
         CycleGAN(
             num_epochs=args.epochs,
@@ -623,5 +641,9 @@ if __name__ == "__main__":
             history=args.history,
             history_size=args.histsize,
             patch=args.patch,
-            patchsize=args.patchsize
+            patchsize=args.patchsize,
+            A=args.A,
+            B=args.B,
+            Atest=args.Atest,
+            Btest=args.Btest
         ).run()
